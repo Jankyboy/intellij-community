@@ -2,7 +2,7 @@
   "name": "restApiDocGenerator",
   "private": true,
   "devDependencies": {
-    "gulp": "^3.9.0",
+    "gulp": "^4.0.0",
     "gulp-apidoc": "^0.2.2"
   }
 }
