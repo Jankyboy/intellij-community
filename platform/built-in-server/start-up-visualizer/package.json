@@ -7,7 +7,7 @@
     "build": "vue-cli-service build"
   },
   "dependencies": {
-    "@amcharts/amcharts4": "4.7.16",
+    "@amcharts/amcharts4": "4.10.22",
     "chokidar": "^3.3.0",
     "compare-versions": "^3.5.1",
     "debounce": "^1.2.0",
