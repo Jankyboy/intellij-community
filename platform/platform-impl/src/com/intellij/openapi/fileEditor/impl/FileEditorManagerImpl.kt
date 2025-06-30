@@ -315,7 +315,7 @@ open class FileEditorManagerImpl(
       })
     }
     else {
-      initJob = coroutineScope.launch(Dispatchers.EDT + ModalityState.any().asContextElement()) {
+      initJob = coroutineScope.launch(Dispatchers.UI + ModalityState.any().asContextElement()) {
         val component = EditorsSplitters(manager = this@FileEditorManagerImpl, coroutineScope = coroutineScope)
         component.isFocusable = false
         InternalUICustomization.getInstance()?.configureEditorsSplitters(component)
@@ -2449,7 +2449,7 @@ private fun reopenVirtualFileInEditor(
     if (fullReplacement) {
       val index = window.files().indexOf(oldFile)
       newOptions = newOptions.copy(index = index)
-      window.closeFile(oldFile)
+      window.closeFile(oldFile, disposeIfNeeded = false)
     }
     val composite = editorManager.openFile(newFile, window, newOptions)
     if (composite.allEditors.any { it.file == newFile } && !fullReplacement) {
