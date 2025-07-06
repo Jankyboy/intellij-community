@@ -11,6 +11,7 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.platform.project.ProjectId
+import com.intellij.platform.scopes.SearchScopesInfo
 import com.intellij.platform.searchEverywhere.*
 import com.intellij.platform.searchEverywhere.equalityProviders.SeEqualityChecker
 import com.intellij.platform.searchEverywhere.providers.SeLog
@@ -51,6 +52,7 @@ class SeBackendService(val project: Project, private val coroutineScope: Corouti
         requestedCountState.update { it + count }
       }
     }
+    val resultsBalancer = SeResultsCountBalancer(providerIds)
 
     SeLog.log(SeLog.ITEM_EMIT) { "Backend will request items from providers: ${providerIds.joinToString(", ")}" }
 
@@ -58,8 +60,14 @@ class SeBackendService(val project: Project, private val coroutineScope: Corouti
       getProvidersHolder(sessionRef, dataContextId)
         ?.get(providerId, isAllTab)
         ?.getItems(params)
-        ?.map { SeTransferItem(it) as SeTransferEvent }
-        ?.onCompletion { emit(SeTransferEnd(providerId)) }
+        ?.map {
+          resultsBalancer.add(it)
+          SeTransferItem(it) as SeTransferEvent
+        }
+        ?.onCompletion {
+          resultsBalancer.end(providerId)
+          emit(SeTransferEnd(providerId))
+        }
     }
 
     val equalityChecker = SeEqualityChecker()
@@ -102,12 +110,16 @@ class SeBackendService(val project: Project, private val coroutineScope: Corouti
       sessionIdToProviderHolders[session.eid]?.let { return@withLock it }
 
       if (dataContextId == null) {
-        throw IllegalStateException("Cannot create providers on the backend: no serialized data context")
+        SeLog.error("Cannot create providers on the backend: no serialized data context")
+        return@withLock null
       }
 
       val dataContext = withContext(Dispatchers.EDT) {
         dataContextId.dataContext()
-      } ?: throw IllegalStateException("Cannot create providers on the backend: couldn't deserialize data context")
+      } ?: run {
+        SeLog.error("Cannot create providers on the backend: couldn't deserialize data context")
+        return@withLock null
+      }
 
       val actionEvent = AnActionEvent.createEvent(dataContext, null, "", ActionUiKind.NONE, null)
       val providersHolder = SeProvidersHolder.initialize(actionEvent, project, sessionRef, "Backend")
@@ -132,7 +144,7 @@ class SeBackendService(val project: Project, private val coroutineScope: Corouti
     dataContextId: DataContextId,
     providerIds: List<SeProviderId>,
     isAllTab: Boolean,
-  ): Map<SeProviderId, SeSearchScopesInfo> {
+  ): Map<SeProviderId, SearchScopesInfo> {
     return providerIds.mapNotNull { providerId ->
       val provider = getProvidersHolder(sessionRef, dataContextId)?.get(providerId, isAllTab)
       provider?.getSearchScopesInfo()?.let {

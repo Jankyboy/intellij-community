@@ -9,6 +9,7 @@
     <module name="intellij.platform.backend"/>
     <module name="intellij.libraries.xerces"/>
     <module name="intellij.xml.dom"/>
+    <module name="intellij.xml.ui.common"/>
   </dependencies>
 
   <extensionPoints>
@@ -429,7 +430,7 @@
 
     <editorFactoryListener implementation="com.intellij.codeInsight.editorActions.XmlTagNameSynchronizer$MyEditorFactoryListener"/>
 
-    <completion.contributor language="HtmlCompatible" implementationClass="com.intellij.html.polySymbols.HtmlSymbolsCompletionContributor"/>
+    <completion.contributor language="HtmlCompatible" implementationClass="com.intellij.polySymbols.html.HtmlSymbolsCompletionContributor"/>
 
     <xml.autoPopupEnabler implementation="com.intellij.xml.microservices.UrlReferencesXmlAutoPopupEnabler"/>
 

@@ -1,5 +1,6 @@
 package com.intellij.mcpserver.impl
 
+import com.intellij.ide.BrowserUtil
 import com.intellij.mcpserver.McpServerBundle
 import com.intellij.mcpserver.clientConfiguration.McpClient
 import com.intellij.mcpserver.settings.McpServerSettings
@@ -11,6 +12,7 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.ApplicationNamesInfo
 import com.intellij.openapi.components.*
+import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
@@ -60,7 +62,7 @@ internal class McpClientDetectionActivity : ProjectActivity {
         .getNotificationGroup("MCP Server")
         .createNotification(
           McpServerBundle.message("mcp.clients.with.wrong.port.detected.notification.title"),
-          McpServerBundle.message("mcp.clients.with.wrong.port.detected.notification.message", notMatchingPort.joinToString(", ") { it.name }),
+          McpServerBundle.message("mcp.clients.with.wrong.port.detected.notification.message", notMatchingPort.joinToString(", ") { it.name.displayName }),
           NotificationType.INFORMATION
         )
         .setSuggestionType(true)
@@ -79,14 +81,14 @@ internal class McpClientDetectionActivity : ProjectActivity {
     project: Project,
   ) {
     val currentProcessedClients = application.service<McpClientDetectionSettings>().state.processedClients.toMutableSet()
-    val newProcessedClients = (currentProcessedClients + detectedClients.map { it.name }).toMutableSet()
+    val newProcessedClients = (currentProcessedClients + detectedClients.map { it.name.displayName }).toMutableSet()
 
     if (currentProcessedClients != newProcessedClients) {
       application.service<McpClientDetectionSettings>().state.processedClients = newProcessedClients
       application.service<McpClientDetectionSettings>().state.intIncrementModificationCount()
 
       val newClients = newProcessedClients.filter { !currentProcessedClients.contains(it) }
-      val unconfiguredNewClients = detectedClients.filter { it.name in newClients }.filterNot { it.isConfigured() ?: false }
+      val unconfiguredNewClients = detectedClients.filter { it.name.displayName in newClients }.filterNot { it.isConfigured() ?: false }
       if (unconfiguredNewClients.isNotEmpty()) {
         showMcpServerAutomaticConfigurationNotification(project, unconfiguredNewClients)
       }
@@ -101,13 +103,27 @@ internal class McpClientDetectionActivity : ProjectActivity {
 
   private class AutoconfigureAction(private val project: Project, private val unconfiguredClients: List<McpClient>, private val notification: Notification): AnAction(McpServerBundle.message("mcp.unconfigured.clients.detected.configure.json")){
     override fun actionPerformed(e: AnActionEvent) {
-      unconfiguredClients.forEach { it.configure() }
-      val doneNotification = NotificationGroupManager.getInstance().getNotificationGroup("MCP Server")
-        .createNotification(McpServerBundle.message("mcp.client.autoconfigured"),
-                            McpServerBundle.message("mcp.server.client.restart.info"), NotificationType.INFORMATION)
-        .setImportant(false)
+      val clientsWithErrorDuringConfiguration = mutableSetOf<McpClient>()
+      unconfiguredClients.forEach { client -> runCatching { client.configure() }.onFailure {
+        thisLogger().info(it)
+        clientsWithErrorDuringConfiguration.add(client) }
+      }
+      val configuredClients = unconfiguredClients.filter { it !in clientsWithErrorDuringConfiguration }
+      if (configuredClients.isNotEmpty()) {
+        val doneNotification = NotificationGroupManager.getInstance().getNotificationGroup("MCP Server")
+          .createNotification(McpServerBundle.message("mcp.client.autoconfigured"),
+                              McpServerBundle.message("mcp.server.client.restart.info", configuredClients.joinToString(", ") { it.name.displayName }), NotificationType.INFORMATION)
+          .setImportant(false)
+        doneNotification.notify(project)
+      }
 
-      doneNotification.notify(project)
+      if (clientsWithErrorDuringConfiguration.isNotEmpty()) {
+        val errorNotification = NotificationGroupManager.getInstance().getNotificationGroup("MCP Server")
+          .createNotification(McpServerBundle.message("mcp.client.error.autoconfigured"),
+                              McpServerBundle.message("mcp.server.error.autoconfigured.info", clientsWithErrorDuringConfiguration.joinToString(", ") { it.name.displayName }), NotificationType.WARNING)
+          .setImportant(false)
+        errorNotification.notify(project)
+      }
       notification.expire()
     }
   }
@@ -117,7 +133,7 @@ internal class McpClientDetectionActivity : ProjectActivity {
       .getNotificationGroup("MCP Server")
       .createNotification(
         McpServerBundle.message("mcp.unconfigured.clients.detected.notification.title"),
-        McpServerBundle.message("mcp.unconfigured.clients.detected.notification.message", unconfiguredClients.joinToString(", ") { it.name }),
+        McpServerBundle.message("mcp.unconfigured.clients.detected.notification.message", unconfiguredClients.joinToString(", ") { it.name.displayName }),
         NotificationType.INFORMATION
       )
     notification
@@ -137,7 +153,7 @@ internal class McpClientDetectionActivity : ProjectActivity {
 
   private fun showMcpServerEnablingSuggestionNotification(project: Project, detectedClients: List<McpClient>) {
     val currentProcessedClients = application.service<McpClientDetectionSettings>().state.processedClients.toMutableSet()
-    val newProcessedClients = (currentProcessedClients + detectedClients.map { it.name }).toMutableSet()
+    val newProcessedClients = (currentProcessedClients + detectedClients.map { it.name.displayName }).toMutableSet()
 
     if (currentProcessedClients != newProcessedClients) {
       application.service<McpClientDetectionSettings>().state.processedClients = newProcessedClients
@@ -158,6 +174,11 @@ internal class McpClientDetectionActivity : ProjectActivity {
         NotificationType.INFORMATION
       )
       .addAction( ShowSettingsAction(project, McpServerBundle.message("mcp.clients.detected.action.enable")))
+      .addAction(object : AnAction(McpServerBundle.message("mcp.clients.detected.action.show.help")) {
+        override fun actionPerformed(e: AnActionEvent) {
+          BrowserUtil.open("https://modelcontextprotocol.io/introduction")
+        }
+      })
       .addAction(object : AnAction(McpServerBundle.message("mcp.clients.detected.action.dont.show")) {
         override fun actionPerformed(e: AnActionEvent) {
           application.service<McpClientDetectionSettings>().state.doNotShowServerDisabledAgain = true

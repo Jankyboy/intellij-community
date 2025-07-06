@@ -3,11 +3,14 @@ package com.intellij.ide.plugins.newui
 
 import com.intellij.ide.plugins.marketplace.ApplyPluginsStateResult
 import com.intellij.ide.plugins.marketplace.CheckErrorsResult
+import com.intellij.ide.plugins.marketplace.SetEnabledStateResult
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.asContextElement
+import com.intellij.openapi.components.service
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.registry.Registry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -35,15 +38,16 @@ object PluginModelAsyncOperationsExecutor {
     }
   }
 
-  fun applySessionResult(
+  fun enablePlugins(
     cs: CoroutineScope,
     sessionId: String,
+    descriptorIds: List<PluginId>,
+    enable: Boolean,
     project: Project?,
-    parentComponent: JComponent?,
-    callback: (ApplyPluginsStateResult) -> Unit,
+    callback: (SetEnabledStateResult) -> Unit,
   ) {
     cs.launch(Dispatchers.IO) {
-      val result = UiPluginManager.getInstance().applySession(sessionId, parentComponent, project)
+      val result = UiPluginManager.getInstance().enablePlugins(sessionId, descriptorIds, enable, project)
       withContext(Dispatchers.EDT + ModalityState.any().asContextElement()) {
         callback(result)
       }

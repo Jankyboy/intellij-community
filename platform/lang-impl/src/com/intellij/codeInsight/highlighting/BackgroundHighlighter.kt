@@ -201,7 +201,7 @@ class BackgroundHighlighter(coroutineScope: CoroutineScope) {
     val offsetBefore = hostEditor.caretModel.offset
     val visibleRange = hostEditor.calculateVisibleRange()
     val needMatching = BackgroundHighlightingUtil.needMatching(hostEditor, CodeInsightSettings.getInstance())
-    coroutineScope.launch {
+    coroutineScope.launch(context = CoroutineName("BackgroundHighlighter.updateHighlighted(${hostEditor.document})")) {
       val job:Job = coroutineContext.job
       val oldJob = (hostEditor as UserDataHolderEx).getAndUpdateUserData(BACKGROUND_TASK) {
         job
@@ -241,7 +241,7 @@ class BackgroundHighlighter(coroutineScope: CoroutineScope) {
         var result = EMPTY_RESULT
         var infos = listOf<HighlightInfo>()
         try {
-          result = identPass.doCollectInformation(newPsiFile.project, visibleRange)
+          result = identPass.doCollectInformation(project, visibleRange)
           if (result == WRONG_DOCUMENT_VERSION) {
             launch(Dispatchers.EDT + modalityState) {
               updateHighlighted(project, hostEditor, coroutineScope)

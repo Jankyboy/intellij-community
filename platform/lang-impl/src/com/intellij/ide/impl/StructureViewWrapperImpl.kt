@@ -164,9 +164,13 @@ class StructureViewWrapperImpl(
             }
           }
         }
-        if (ExperimentalUI.isNewUI() && myStructureView is StructureViewComponent) {
-          val additional = (myStructureView as StructureViewComponent).dotsActions
-          myToolWindow.setAdditionalGearActions(additional)
+        if (ExperimentalUI.isNewUI()) {
+          (myStructureView as? StructureViewComponent)?.let {
+            myToolWindow.setAdditionalGearActions(it.dotsActions)
+          }
+          (myStructureView as? StructureViewComposite)?.structureViews?.forEach {
+            (it.structureView as? StructureViewComponent)?.let { sv -> myToolWindow.setAdditionalGearActions(sv.dotsActions) }
+          }
         }
       }
     })
@@ -274,7 +278,7 @@ class StructureViewWrapperImpl(
               setFileFromSelectionHistory()
             }
             else {
-              setFile(null)
+              setFile(project.serviceAsync<FileEditorManager>().selectedFiles.firstOrNull())
             }
           }
         }

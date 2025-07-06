@@ -92,6 +92,7 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
   public MyPluginModel(@Nullable Project project) {
     super(project);
     Window window = ProjectUtil.getActiveFrameOrWelcomeScreen();
+    myCoroutineScope = ApplicationManager.getApplication().getService(FrontendRpcCoroutineContext.class).getCoroutineScope();
     StatusBarEx statusBar = getStatusBar(window);
     myStatusBar = statusBar != null || window == null ?
                   statusBar :
@@ -129,24 +130,10 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
     if (error != null) {
       throw new ConfigurationException(XmlStringUtil.wrapInHtml(error)).withHtmlMessage();
     }
-    applyResult.getPluginsToEnable().forEach(id -> setEnabled(id, PluginEnabledState.ENABLED));
+    applyResult.getPluginsToEnable().forEach(id -> super.setEnabled(id, PluginEnabledState.ENABLED));
     myUninstalled.clear();
     updateButtons();
     return !applyResult.getNeedRestart();
-  }
-
-  public void applyAsync(@Nullable JComponent parent, Consumer<Boolean> callback) throws ConfigurationException {
-    String error = UiPluginManager.getInstance().getApplSessionError(sessionId.toString());
-    if (error != null) {
-      throw new ConfigurationException(XmlStringUtil.wrapInHtml(error)).withHtmlMessage();
-    }
-    PluginModelAsyncOperationsExecutor.INSTANCE.applySessionResult(myCoroutineScope, sessionId.toString(), getProject(), parent, res -> {
-      res.getPluginsToEnable().forEach(id -> setEnabled(id, PluginEnabledState.ENABLED));
-      myUninstalled.clear();
-      updateButtons();
-      callback.accept(!res.getNeedRestart());
-      return null;
-    });
   }
 
   public void clear(@Nullable JComponent parentComponent) {
@@ -331,7 +318,7 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
 
           List<IdeaPluginDescriptor> pluginsToInstall = List.of(pluginUiModel.getDescriptor());
           ApplicationManager.getApplication().invokeAndWait(() -> {
-            PluginManagerMain.suggestToEnableInstalledDependantPlugins(MyPluginModel.this, pluginsToInstall);
+            PluginManagerMain.suggestToEnableInstalledDependantPlugins(MyPluginModel.this, pluginsToInstall, updateDescriptor != null);
           }, modalityState);
 
 
@@ -829,6 +816,23 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
     else {
       askToUpdateDependencies(action, result.getPluginNamesToSwitch(), result.getPluginsIdsToSwitch());
     }
+    return true;
+  }
+
+  public boolean setEnabledStateAsync(@NotNull Collection<? extends IdeaPluginDescriptor> descriptors,
+                                 @NotNull PluginEnableDisableAction action) {
+    List<PluginId> pluginIds = ContainerUtil.map(descriptors, it -> it.getPluginId());
+    PluginModelAsyncOperationsExecutor.INSTANCE.enablePlugins(myCoroutineScope, sessionId.toString(), pluginIds, action.isEnable(),
+                                                              getProject(), result -> {
+        if (result.getPluginNamesToSwitch().isEmpty()) {
+          applyChangedStates(result.getChangedStates());
+          updateEnabledStateInUi();
+        }
+        else {
+          askToUpdateDependencies(action, result.getPluginNamesToSwitch(), result.getPluginsIdsToSwitch());
+        }
+        return null;
+      });
     return true;
   }
 

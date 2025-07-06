@@ -47,12 +47,12 @@ suspend fun setupNewUvSdkAndEnv(
       return it
     }
 
-  return setupExistingEnvAndSdk(envExecutable, null, false, workingDir, existingSdks)
+  return setupExistingEnvAndSdk(envExecutable, workingDir, false, workingDir, existingSdks)
 }
 
 suspend fun setupExistingEnvAndSdk(
   envExecutable: Path,
-  envWorkingDir: Path?,
+  envWorkingDir: Path,
   usePip: Boolean,
   projectDir: Path,
   existingSdks: List<Sdk>,
@@ -61,7 +61,7 @@ suspend fun setupExistingEnvAndSdk(
     envExecutable,
     existingSdks,
     projectDir.toString(),
-    suggestedSdkName(projectDir),
+    suggestedSdkName(envWorkingDir),
     UvSdkAdditionalData(envWorkingDir, usePip))
 
   return sdk

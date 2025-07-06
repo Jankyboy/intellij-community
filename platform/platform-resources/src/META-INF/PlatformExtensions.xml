@@ -175,10 +175,6 @@
                  restartRequired="false"
                  description="Set initial Linux tty size to 100x100 for WSL processes not attached to Windows PTY (workaround for https://github.com/microsoft/WSL/issues/10701)"
                  defaultValue="true"/>
-    <registryKey key="reworked.plugin.manager.enabled"
-                 restartRequired="false"
-                 description="Enable reworked 'Preferences | Plugins' settings."
-                 defaultValue="false"/>
     <experimentalFeature id="ide.redesigned.inspector" percentOfUsers="0">
       <description>
         Enable new inspection widget experiment
@@ -1955,8 +1951,6 @@
     <applicationService serviceInterface="com.intellij.openapi.vfs.FileIdAdapter"
                         serviceImplementation="com.intellij.openapi.vfs.impl.FileIdAdapterImpl"
                         preload="notHeadless"/>
-    <applicationService serviceInterface="com.intellij.openapi.vfs.StartupVirtualFileProcessor"
-                        serviceImplementation="com.intellij.openapi.vfs.impl.PlatformStartupVirtualFileProcessor"/>
     <applicationService serviceImplementation="com.intellij.openapi.vfs.impl.FilePermissionManagerImpl"
                         serviceInterface="com.intellij.openapi.vfs.impl.FilePermissionManager"
                         client="all"/>

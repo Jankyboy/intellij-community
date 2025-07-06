@@ -4,6 +4,7 @@ package com.intellij.ide.structureView.logical.impl
 import com.intellij.ide.TypePresentationService
 import com.intellij.ide.projectView.PresentationData
 import com.intellij.ide.structureView.*
+import com.intellij.ide.structureView.StructureViewBundle
 import com.intellij.ide.structureView.impl.common.PsiTreeElementBase
 import com.intellij.ide.structureView.logical.ContainerElementsProvider
 import com.intellij.ide.structureView.logical.ExternalElementsProvider
@@ -37,7 +38,7 @@ class LogicalStructureViewModel private constructor(psiFile: PsiFile, editor: Ed
   }
 
   override fun isAlwaysLeaf(element: StructureViewTreeElement?): Boolean {
-    return element is ElementsBuilder.PropertyStructureElement
+    return element is ElementsBuilder.PropertyStructureElement || element is ElementsBuilder.EmptyChildrenElement<*>
   }
 
   override fun isAutoExpand(element: StructureViewTreeElement): Boolean {
@@ -213,6 +214,7 @@ private class ElementsBuilder {
       presentationData.addText(item)
     }
     presentationData.setIcon(presentationProvider.getIcon(model))
+    presentationData.tooltip = presentationProvider.getTooltipText(model)
     return presentationData
   }
 
@@ -289,7 +291,9 @@ private class ElementsBuilder {
   ) : LogicalStructureViewTreeElement<T> {
 
     private val cashedChildren: Array<TreeElement> by lazy {
-      calculateChildren()
+      val result = calculateChildren()
+      if (result.isEmpty()) return@lazy arrayOf(EmptyChildrenElement(parentAssembledModel))
+      result
     }
 
     override fun getValue(): Any = grouper
@@ -387,5 +391,20 @@ private class ElementsBuilder {
     override fun hashCode(): Int {
       return assembledModel.hashCode()
     }
+  }
+
+  class EmptyChildrenElement<T>(
+    val parentAssembledModel: LogicalStructureAssembledModel<T>,
+  ): LogicalStructureViewTreeElement<T> {
+    override fun getPresentation(): ItemPresentation {
+      return PresentationData(null, null, null, null).apply {
+        this.addText(StructureViewBundle.message("node.structureview.empty"), SimpleTextAttributes.GRAY_SMALL_ATTRIBUTES)
+      }
+    }
+
+    override fun getChildren(): Array<out TreeElement?> = emptyArray()
+    override fun getValue(): Any? = Any()
+    override fun getLogicalAssembledModel() = parentAssembledModel
+    override fun isHasNoOwnLogicalModel(): Boolean = true
   }
 }

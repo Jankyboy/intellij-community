@@ -14,6 +14,7 @@
     <module name="intellij.libraries.microba"/>
     <module name="intellij.libraries.skiko"/>
     <module name="intellij.platform.compose"/>
+    <module name="intellij.platform.compose.markdown"/>
     <module name="intellij.platform.jewel.foundation"/>
     <module name="intellij.libraries.compose.foundation.desktop"/>
     <module name="intellij.platform.jewel.ui"/>
@@ -23,6 +24,7 @@
     <module name="intellij.platform.jewel.markdown.extensions.gfmAlerts"/>
     <module name="intellij.platform.jewel.markdown.extensions.gfmTables"/>
     <module name="intellij.platform.jewel.markdown.extensions.gfmStrikethrough"/>
+    <module name="intellij.platform.jewel.markdown.extensions.images"/>
     <module name="intellij.platform.jewel.markdown.core"/>
     <module name="intellij.platform.diagnostic.freezeAnalyzer"/>
     <module name="intellij.platform.diagnostic.freezes"/>
@@ -38,6 +40,8 @@
     <module name="intellij.platform.ide.impl.wsl"/>
     <module name="intellij.platform.diagnostic.telemetry.agent.extension"/>
     <module name="intellij.platform.polySymbols.backend" loading="embedded"/> <!--todo: move to essential modules when not embedded-->
+
+    <module name="intellij.regexp" loading="embedded"/>
   </content>
 
   <xi:include href="/META-INF/grid-core-modules.xml"/>
