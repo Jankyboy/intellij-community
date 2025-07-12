@@ -10,14 +10,13 @@
 ### The option was removed due to https://github.com/bazelbuild/bazel/issues/26361
 ### One experimental option less and also it looks like it won't enabled by default in the future
 
-common --@rules_jvm//:jvm-builder=@community//:monorepo-jvm-builder
+common --@rules_jvm//:jvm-builder=@community//:monorepo-jvm-builder_deploy.jar
 common --@rules_jvm//:default-kotlinc-opts=@community//:k17
-common --@rules_jvm//:resource-packager=@rules_jvm//src/misc:worker-jvm
 common --@rules_jvm//:koltin_inc_threshold=0 --@rules_jvm//:java_inc_threshold=0
 
 # configure resources
-common --local_resources=memory=HOST_RAM*.77 --local_resources=cpu=HOST_CPUS*1.2
-common --jobs=HOST_CPUS*1.2 --worker_max_multiplex_instances=JvmCompile=HOST_CPUS*1.2
+common --local_resources=memory=HOST_RAM*.77 --local_resources=cpu=HOST_CPUS*2
+common --jobs=HOST_CPUS*2 --worker_max_multiplex_instances=JvmCompile=HOST_CPUS*2
 
 # hide Java 8 deprecation warnings
 common --javacopt=-Xlint:-options
@@ -59,6 +58,9 @@ build:ci --nowatchfs
 common --enable_platform_specific_config
 common --incompatible_strict_action_env=true
 
+# Use target platform short name (not CPU) in the output directory
+common --experimental_platform_in_output_dir
+
 # Do not depend on external environment
 build --action_env BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
 
@@ -81,3 +83,6 @@ common:ci --show_progress_rate_limit=30
 
 # avoid creating a runfiles tree for binaries or tests until it is needed
 build --nobuild_runfile_links
+
+# Non-sandboxed tests by default
+test --strategy=TestRunner=local

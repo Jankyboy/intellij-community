@@ -13,6 +13,9 @@
     <module name="intellij.platform.project.backend"/>
     <module name="intellij.platform.progress.backend"/>
 
+    <module name="intellij.platform.scopes"/>
+    <module name="intellij.platform.scopes.backend"/>
+
     <!-- todo navbar is not essential-->
     <module name="intellij.platform.navbar"/>
     <module name="intellij.platform.navbar.backend"/>
@@ -73,5 +76,8 @@
     <module name="intellij.platform.identifiers.highlighting.backend"/>
 
     <module name="intellij.platform.polySymbols" loading="embedded"/>
+    <module name="intellij.platform.rpc.topics" loading="embedded"/>
+    <module name="intellij.platform.rpc.topics.backend"/>
+    <module name="intellij.platform.rpc.topics.frontend"/>
   </content>
 </idea-plugin>

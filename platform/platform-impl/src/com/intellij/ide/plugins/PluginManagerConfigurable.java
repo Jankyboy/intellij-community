@@ -361,6 +361,13 @@ public final class PluginManagerConfigurable
       @Override
       protected void onPluginInstalledFromDisk(@NotNull PluginInstallCallbackData callbackData,
                                                @Nullable Project project) {
+        if (myPluginManagerCustomizer != null) {
+          myPluginManagerCustomizer.updateAfterModification(() -> {
+            PluginManagerConfigurable.this.onPluginInstalledFromDisk(callbackData);
+            return null;
+          });
+          return;
+        }
         PluginManagerConfigurable.this.onPluginInstalledFromDisk(callbackData);
       }
     });
@@ -1068,8 +1075,9 @@ public final class PluginManagerConfigurable
             Map<Boolean, List<PluginUiModel>> visiblePlugins = model.getVisiblePlugins()
               .stream()
               .collect(Collectors.partitioningBy(PluginUiModel::isBundled));
-
-            List<PluginUiModel> nonBundledPlugins = visiblePlugins.get(Boolean.FALSE);
+            List<PluginId> installedPluginIds = ContainerUtil.map(model.getInstalledPlugins(), it -> it.getPluginId());
+            List<PluginUiModel> nonBundledPlugins =
+              ContainerUtil.filter(visiblePlugins.get(Boolean.FALSE), it -> !installedPluginIds.contains(it.getPluginId()));
             downloaded.addModels(nonBundledPlugins);
 
             LinkListener<Object> updateAllListener = new LinkListener<>() {
@@ -1420,7 +1428,7 @@ public final class PluginManagerConfigurable
                                  @NotNull Project project,
                                  Map<String, @NotNull List<PluginUiModel>> customMap,
                                  @NotNull Map<@NotNull PluginId,
-                                   @NotNull List<@NotNull HtmlChunk>> errors,
+                                 @NotNull List<@NotNull HtmlChunk>> errors,
                                  @NotNull List<@NotNull PluginUiModel> plugins) {
     String groupName = IdeBundle.message("plugins.configurable.suggested");
     LOG.info("Marketplace tab: '" + groupName + "' group load started");
@@ -2011,6 +2019,7 @@ public final class PluginManagerConfigurable
     pluginsState.resetChangesAppliedWithoutRestart();
 
     if (myDisposer != null) {
+      Disposer.dispose(myDisposer);
       CoroutineScopeKt.cancel(myCoroutineScope, null);
       myDisposer = null;
     }
@@ -2040,19 +2049,16 @@ public final class PluginManagerConfigurable
       }
     }
 
-    myPluginModelFacade.getModel().applyAsync(myCardPanel, doNotNeedRestart -> {
-      if (doNotNeedRestart) {
-        return;
-      }
-      if (myPluginModelFacade.getModel().createShutdownCallback) {
-        InstalledPluginsState.getInstance().setShutdownCallback(() -> {
-          ApplicationManager.getApplication().invokeLater(() -> {
-            if (ApplicationManager.getApplication().isExitInProgress()) return; // already shutting down
-            shutdownOrRestartApp();
-          });
+    if (myPluginModelFacade.getModel().apply(myCardPanel)) return;
+
+    if (myPluginModelFacade.getModel().createShutdownCallback) {
+      InstalledPluginsState.getInstance().setShutdownCallback(() -> {
+        ApplicationManager.getApplication().invokeLater(() -> {
+          if (ApplicationManager.getApplication().isExitInProgress()) return; // already shutting down
+          shutdownOrRestartApp();
         });
-      }
-    });
+      });
+    }
   }
 
   @Override

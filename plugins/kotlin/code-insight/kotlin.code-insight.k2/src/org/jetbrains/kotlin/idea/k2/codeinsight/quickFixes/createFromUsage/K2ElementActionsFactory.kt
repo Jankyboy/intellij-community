@@ -35,24 +35,55 @@ import org.jetbrains.kotlin.idea.codeinsight.api.applicable.intentions.KotlinPsi
 import org.jetbrains.kotlin.idea.k2.codeinsight.K2OptimizeImportsFacility
 import org.jetbrains.kotlin.idea.k2.codeinsight.quickFixes.createFromUsage.K2CreateFunctionFromUsageUtil.toKtClassOrFile
 import org.jetbrains.kotlin.idea.quickfix.AddModifierFix
+import org.jetbrains.kotlin.idea.quickfix.AddModifierFixMpp
+import org.jetbrains.kotlin.idea.quickfix.RemoveModifierFixBase
 import org.jetbrains.kotlin.idea.refactoring.isAbstract
 import org.jetbrains.kotlin.idea.refactoring.isInterfaceClass
 import org.jetbrains.kotlin.idea.util.findAnnotation
+import org.jetbrains.kotlin.lexer.KtModifierKeywordToken
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.psiUtil.containingClass
+import org.jetbrains.kotlin.psi.psiUtil.visibilityModifierType
 
 class K2ElementActionsFactory : JvmElementActionsFactory() {
     override fun createAddConstructorActions(targetClass: JvmClass, request: CreateConstructorRequest): List<IntentionAction> {
-        return super.createAddConstructorActions(targetClass, request)
+        if (!request.isValid) return emptyList()
+        val targetKtClass = targetClass.toKtClassOrFile() as? KtClass ?: return emptyList()
+        val parameters = request.expectedParameters
+
+        val changePrimaryConstructorAction = run {
+            val primaryConstructor = targetKtClass.primaryConstructor ?: return@run null
+            val lightMethod = primaryConstructor.toLightMethods().firstOrNull() ?: return@run null
+            val project = targetKtClass.project
+            val fakeParametersExpressions = fakeParametersExpressions(parameters, project) ?: return@run null
+            QuickFixFactory.getInstance().createChangeMethodSignatureFromUsageFix(
+                lightMethod,
+                fakeParametersExpressions,
+                PsiSubstitutor.EMPTY,
+                targetKtClass,
+                false,
+                2
+            ).takeIf { it.isAvailable(project, null, targetKtClass.containingFile) }
+        }
+
+        return listOfNotNull(changePrimaryConstructorAction)
     }
 
     override fun createChangeOverrideActions(
         target: JvmModifiersOwner,
         shouldBePresent: Boolean
     ): List<IntentionAction> {
-        return super.createChangeOverrideActions(target, shouldBePresent)
+        val kModifierOwner = target.sourceElement?.unwrapped as? KtModifierListOwner ?: return emptyList()
+
+        val action = if (shouldBePresent) {
+            AddModifierFix(kModifierOwner, KtTokens.OVERRIDE_KEYWORD)
+        } else {
+            RemoveModifierFixBase(kModifierOwner, KtTokens.OVERRIDE_KEYWORD, isRedundant = false)
+        }
+
+        return listOfNotNull(action.asIntention())
     }
 
     override fun createRemoveAnnotationActions(
@@ -163,34 +194,71 @@ class K2ElementActionsFactory : JvmElementActionsFactory() {
 
     override fun createChangeTypeActions(
         target: JvmMethod,
-        request: ChangeTypeRequest
+        request: ChangeTypeRequest,
     ): List<IntentionAction> {
-        return super.createChangeTypeActions(target, request)
+        val ktCallableDeclaration = (target as? KtLightElement<*, *>)?.kotlinOrigin as? KtCallableDeclaration
+            ?: return emptyList()
+        return listOf(ChangeType(ktCallableDeclaration, request).asIntention())
     }
 
     override fun createChangeTypeActions(
         target: JvmParameter,
-        request: ChangeTypeRequest
+        request: ChangeTypeRequest,
     ): List<IntentionAction> {
-        return super.createChangeTypeActions(target, request)
+        val ktCallableDeclaration = (target as? KtLightElement<*, *>)?.kotlinOrigin as? KtCallableDeclaration
+            ?: return emptyList()
+        return listOf(ChangeType(ktCallableDeclaration, request).asIntention())
     }
 
     override fun createChangeTypeActions(
         target: JvmField,
-        request: ChangeTypeRequest
+        request: ChangeTypeRequest,
     ): List<IntentionAction> {
-        return super.createChangeTypeActions(target, request)
+        val ktCallableDeclaration = (target as? KtLightElement<*, *>)?.kotlinOrigin as? KtCallableDeclaration
+            ?: return emptyList()
+        return listOf(ChangeType(ktCallableDeclaration, request).asIntention())
     }
 
     override fun createChangeModifierActions(target: JvmModifiersOwner, request: ChangeModifierRequest): List<IntentionAction> {
         val kModifierOwner = target.sourceElement?.unwrapped as? KtModifierListOwner ?: return emptyList()
 
-        if (request.modifier == JvmModifier.FINAL && !request.shouldBePresent()) {
-            return listOf(
-                AddModifierFix(kModifierOwner, KtTokens.OPEN_KEYWORD).asIntention()
-            )
+        val modifier = request.modifier
+        val shouldPresent = request.shouldBePresent()
+
+        if (modifier == JvmModifier.PUBLIC && shouldPresent && kModifierOwner is KtProperty) {
+            return listOf(MakeFieldPublicFix(kModifierOwner).asIntention())
         }
-        return emptyList()
+        if (modifier == JvmModifier.STATIC && shouldPresent && kModifierOwner is KtNamedDeclaration) {
+            return listOf(MakeMemberStaticFix(kModifierOwner).asIntention())
+        }
+
+        val (kToken, shouldPresentMapped) = when (modifier) {
+            JvmModifier.FINAL -> KtTokens.OPEN_KEYWORD to !shouldPresent
+            JvmModifier.STATIC if !shouldPresent && kModifierOwner is KtClass && !kModifierOwner.isTopLevel() ->
+                KtTokens.INNER_KEYWORD to true
+
+            JvmModifier.PUBLIC if shouldPresent ->
+                kModifierOwner.visibilityModifierType()
+                    ?.takeIf { it != KtTokens.DEFAULT_VISIBILITY_KEYWORD }
+                    ?.let { it to false } ?: return emptyList()
+
+            else -> javaPsiModifiersMapping[modifier] to shouldPresent
+        }
+        if (kToken == null) return emptyList()
+        return createChangeModifierActions(kModifierOwner, kToken, shouldPresentMapped)
+    }
+
+    private fun createChangeModifierActions(
+        modifierListOwners: KtModifierListOwner,
+        token: KtModifierKeywordToken,
+        shouldBePresent: Boolean
+    ): List<IntentionAction> {
+        val action = if (shouldBePresent) {
+            AddModifierFixMpp.createIfApplicable(modifierListOwners, token)
+        } else {
+            RemoveModifierFixBase(modifierListOwners, token, false)
+        }
+        return listOfNotNull(action?.asIntention())
     }
 
     override fun createAddMethodActions(targetClass: JvmClass, request: CreateMethodRequest): List<IntentionAction> {
@@ -516,7 +584,7 @@ private fun createAddPropertyActions(
     )
 
     val actions = if (setterRequired) {
-        listOf(
+        listOfNotNull(
             action, K2CreatePropertyFromUsageBuilder.generatePropertyAction(
                 targetContainer = targetContainer,
                 classOrFileName = classOrFileName,
@@ -525,7 +593,14 @@ private fun createAddPropertyActions(
             )
         )
     } else {
-        listOf(action)
+        listOfNotNull(action)
     }
     return actions
 }
+
+private val javaPsiModifiersMapping: Map<JvmModifier, KtModifierKeywordToken> = mapOf(
+    JvmModifier.PRIVATE to KtTokens.PRIVATE_KEYWORD,
+    JvmModifier.PUBLIC to KtTokens.PUBLIC_KEYWORD,
+    JvmModifier.PROTECTED to KtTokens.PUBLIC_KEYWORD,
+    JvmModifier.ABSTRACT to KtTokens.ABSTRACT_KEYWORD
+)

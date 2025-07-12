@@ -296,15 +296,18 @@ def _run_jvm_builder(
 
     javaCount = len(srcs.java)
     args.add("--java-count", javaCount)
+
+    java_runtime = ctx.attr._tool_java_runtime[java_common.JavaRuntimeInfo]
+
     ctx.actions.run(
         mnemonic = "JvmCompile",
         env = {
             "MALLOC_ARENA_MAX": "2",
         },
         inputs = depset(srcs.all_srcs, transitive = transitiveInputs),
-        use_default_shell_env = True,
         outputs = outputs,
-        executable = ctx.attr._jvm_builder.files_to_run.executable,
+        tools = [ctx.file._jvm_builder],
+        executable = java_runtime.java_executable_exec_path,
         execution_requirements = {
             "supports-workers": "1",
             "supports-multiplex-workers": "1",
@@ -312,7 +315,11 @@ def _run_jvm_builder(
             "supports-path-mapping": "1",
             "supports-multiplex-sandboxing": "1",
         },
-        arguments = [args],
+        arguments = ctx.attr._jvm_builder_jvm_flags[BuildSettingInfo].value + [
+            "-jar",
+            ctx.file._jvm_builder.path,
+            args,
+        ],
         progress_message = "compile %%{label} (kt: %d, java: %d%s}" % (len(srcs.kt), javaCount, "" if isIncremental else ", non-incremental"),
     )
 

@@ -1,20 +1,20 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.eel.provider.utils
 
+import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.progress.runBlockingMaybeCancellable
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.io.NioFiles
 import com.intellij.platform.eel.EelApi
 import com.intellij.platform.eel.EelDescriptor
 import com.intellij.platform.eel.fs.createTemporaryDirectory
 import com.intellij.platform.eel.fs.createTemporaryFile
+import com.intellij.platform.eel.fs.getPath
 import com.intellij.platform.eel.isWindows
 import com.intellij.platform.eel.path.EelPath
-import com.intellij.platform.eel.provider.LocalEelDescriptor
-import com.intellij.platform.eel.provider.asEelPath
-import com.intellij.platform.eel.provider.asNioPath
-import com.intellij.platform.eel.provider.getEelDescriptor
+import com.intellij.platform.eel.provider.*
 import com.intellij.platform.eel.provider.utils.EelPathUtils.transferLocalContentToRemote
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import kotlinx.coroutines.*
@@ -52,6 +52,19 @@ object EelPathUtils {
     return path.getEelDescriptor() == LocalEelDescriptor
   }
 
+  fun expandUserHome(eelDescriptor: EelDescriptor, path: String): Path {
+    val userHome = eelDescriptor.toEelApiBlocking().userInfo.home
+    val path = runCatching { Path(path).asEelPath().toString() }.getOrNull() ?: path // try to normalize path
+
+    return eelDescriptor.getPath(if (path == "~") {
+      userHome.toString()
+    } else if (path.startsWith("~/") || path.startsWith("~\\")) {
+      userHome.toString() + path.substring(1)
+    } else {
+      path
+    }).asNioPath()
+  }
+
   /**
    * **Obsolete – avoid it in new code.**
    *
@@ -84,21 +97,54 @@ object EelPathUtils {
 
   @JvmStatic
   @RequiresBackgroundThread(generateAssertion = false)
-  fun createTemporaryDirectory(project: Project?, prefix: String = ""): Path {
-    if (project == null || isProjectLocal(project)) {
-      return Files.createTempDirectory(prefix)
-    }
-    val projectFilePath = project.projectFilePath ?: return Files.createTempDirectory(prefix)
-    return runBlockingMaybeCancellable {
-      val eel = Path.of(projectFilePath).getEelDescriptor().toEelApi()
-      createTemporaryDirectory(eel, prefix)
-    }
+  fun getSystemFolder(project: Project): Path {
+    return getSystemFolder(project.getEelDescriptor().toEelApiBlocking())
   }
 
   @JvmStatic
-  suspend fun createTemporaryDirectory(eelApi: EelApi, prefix: String = ""): Path {
-    val file = eelApi.fs.createTemporaryDirectory().prefix(prefix).getOrThrowFileSystemException()
+  @RequiresBackgroundThread(generateAssertion = false)
+  fun getSystemFolder(eelDescriptor: EelDescriptor): Path {
+    return getSystemFolder(eelDescriptor.toEelApiBlocking())
+  }
+
+  @JvmStatic
+  @RequiresBackgroundThread(generateAssertion = false)
+  fun getSystemFolder(eel: EelApi): Path {
+    val selector = PathManager.getPathsSelector() ?: "IJ-Platform"
+    val userHomeFolder = eel.userInfo.home.asNioPath().toString()
+    return PathManager.getDefaultSystemPathFor(eel.platform.toPathManagerOs(), userHomeFolder, selector, eel.exec.fetchLoginShellEnvVariablesBlocking())
+  }
+
+  @JvmStatic
+  @OptIn(ExperimentalPathApi::class)
+  @RequiresBackgroundThread(generateAssertion = false)
+  fun createTemporaryDirectory(project: Project?, prefix: String = "", suffix: String = "", deleteOnExit: Boolean = false): Path {
+    if (project == null || isProjectLocal(project) || project.projectFilePath == null) {
+      val dir = Files.createTempDirectory(prefix)
+      if (deleteOnExit) {
+        Runtime.getRuntime().addShutdownHook(Thread {
+          dir.deleteRecursively()
+        })
+      }
+      return dir
+    }
+    val eel = Path.of(project.projectFilePath!!).getEelDescriptor().toEelApiBlocking()
+    return createTemporaryDirectory(eel, prefix, suffix, deleteOnExit)
+  }
+
+  private suspend fun createTemporaryDirectoryImpl(eelApi: EelApi, prefix: String = "", suffix: String = "", deleteOnExit: Boolean = false): Path {
+    val file = eelApi.fs.createTemporaryDirectory()
+      .prefix(prefix)
+      .suffix(suffix)
+      .deleteOnExit(deleteOnExit)
+      .getOrThrowFileSystemException()
     return file.asNioPath()
+  }
+
+  @JvmStatic
+  @RequiresBackgroundThread(generateAssertion = false)
+  fun createTemporaryDirectory(eelApi: EelApi, prefix: String = "", suffix: String = "", deleteOnExit: Boolean = false): Path {
+    return runBlockingMaybeCancellable { createTemporaryDirectoryImpl(eelApi, prefix, suffix, deleteOnExit) }
   }
 
   @JvmStatic
@@ -268,12 +314,24 @@ object EelPathUtils {
 
   @Service
   private class TransferredContentHolder(private val scope: CoroutineScope) {
+
+    data class CacheKey(
+      val descriptor: EelDescriptor,
+      val sourcePathString: String,
+      val fileAttributesStrategy: FileTransferAttributesStrategy,
+    )
+    data class CacheValue(
+      val sourceHash: String,
+      val transferredFilePath: Path
+    )
+    private class Cache: ConcurrentHashMap<CacheKey, Deferred<CacheValue>>()
+
     // eel descriptor -> source path string ->> source hash -> transferred file
-    private val cache = ConcurrentHashMap<Pair<EelDescriptor, String>, Deferred<Pair<String, Path>>>()
+    private val cache = Cache()
 
     @OptIn(ExperimentalCoroutinesApi::class)
     suspend fun transferIfNeeded(eel: EelApi, source: Path, fileAttributesStrategy: FileTransferAttributesStrategy): Path {
-      return cache.compute(eel.descriptor to source.toString()) { _, deferred ->
+      return cache.compute(CacheKey(eel.descriptor, source.toString(), fileAttributesStrategy)) { _, deferred ->
         val sourceHash by lazy { calculateFileHashUsingMetadata(source) }
 
         if (deferred != null) {
@@ -291,15 +349,15 @@ object EelPathUtils {
         scope.async {
           val temp = eel.createTempFor(source, true)
           walkingTransfer(source, temp, false, fileAttributesStrategy)
-          sourceHash to temp
+          CacheValue(sourceHash, temp)
         }
-      }!!.await().second
+      }!!.await().transferredFilePath
     }
   }
 
   private suspend fun EelApi.createTempFor(source: Path, deleteOnExit: Boolean): Path {
     return if (source.isDirectory()) {
-      fs.createTemporaryDirectory().deleteOnExit(deleteOnExit).getOrThrowFileSystemException().asNioPath()
+      createTemporaryDirectoryImpl(eelApi = this, deleteOnExit = deleteOnExit)
     }
     else {
       fs.createTemporaryFile().suffix(source.name).deleteOnExit(deleteOnExit).getOrThrowFileSystemException().asNioPath()
@@ -314,6 +372,7 @@ object EelPathUtils {
    * - Last modified time.
    * - Creation time.
    * - File key (if available).
+   * - File permissions (if available).
    *
    * @param path the file path for which the hash is calculated.
    * @return a hexadecimal string representing the computed SHA-256 hash.
@@ -325,12 +384,27 @@ object EelPathUtils {
     val creationTime = attributes.creationTime().toMillis()
     val fileKey = attributes.fileKey()?.toString() ?: ""
 
+    val permissions = if (attributes is PosixFileAttributes) {
+      val sb = StringBuilder()
+      sb.append(attributes.group().name)
+      sb.append("\\0")
+      sb.append(attributes.owner().name)
+      for (permission in attributes.permissions()) {
+        sb.append(permission.name)
+      }
+      sb.toString()
+    }
+    else {
+      ""
+    }
+
     val digest = MessageDigest.getInstance("SHA-256")
 
     digest.update(fileSize.toString().toByteArray())
     digest.update(lastModified.toString().toByteArray())
     digest.update(creationTime.toString().toByteArray())
     digest.update(fileKey.toByteArray())
+    digest.update(permissions.toByteArray())
 
     return digest.digest().joinToString("") { "%02x".format(it) }
   }
@@ -686,6 +760,11 @@ object EelPathUtils {
       from.lastAccessTime(),
       from.creationTime(),
     )
+  }
+
+  fun deleteRecursively(path: Path) {
+    // TODO optimize the remote FS case
+    NioFiles.deleteRecursively(path)
   }
 }
 

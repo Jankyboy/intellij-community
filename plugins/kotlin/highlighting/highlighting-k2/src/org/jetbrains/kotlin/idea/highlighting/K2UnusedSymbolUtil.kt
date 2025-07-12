@@ -9,6 +9,7 @@ import com.intellij.codeInspection.ex.EntryPointsManager
 import com.intellij.codeInspection.ex.EntryPointsManagerBase
 import com.intellij.find.FindManager
 import com.intellij.find.impl.FindManagerImpl
+import com.intellij.injected.editor.VirtualFileWindow
 import com.intellij.openapi.project.Project
 import com.intellij.psi.*
 import com.intellij.psi.search.GlobalSearchScope
@@ -69,6 +70,7 @@ object K2UnusedSymbolUtil {
 
     // Simple PSI-based checks
     fun isApplicableByPsi(declaration: KtNamedDeclaration): Boolean {
+        if (declaration.isScriptTopLevelPublicDeclaration()) return false
         // never mark companion object as unused (there are too many reasons it can be needed for)
         if (declaration is KtObjectDeclaration && declaration.isCompanion()) return false
 
@@ -132,6 +134,11 @@ object K2UnusedSymbolUtil {
         }
         return ownerFunction.containingClass()?.isInterface() == true
     }
+
+    private fun KtNamedDeclaration.isScriptTopLevelPublicDeclaration(): Boolean
+        = parent.parent is KtScript && !hasModifier(KtTokens.PRIVATE_KEYWORD)
+            // Kotlin Notebook injections do check references
+            && containingFile.virtualFile !is VirtualFileWindow
 
     context(KaSession)
     fun isHiddenFromResolution(declaration: KtNamedDeclaration): Boolean {

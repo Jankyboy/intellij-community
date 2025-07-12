@@ -23,14 +23,14 @@ import com.intellij.openapi.vfs.VirtualFileManager
 import com.jetbrains.python.PyBundle.message
 import com.jetbrains.python.getOrThrow
 import com.jetbrains.python.packaging.*
-  import com.jetbrains.python.packaging.common.NormalizedPythonPackageName
+import com.jetbrains.python.packaging.cache.PythonSimpleRepositoryCache
+import com.jetbrains.python.packaging.common.NormalizedPythonPackageName
 import com.jetbrains.python.packaging.common.PythonPackage
 import com.jetbrains.python.packaging.common.PythonPackageDetails
 import com.jetbrains.python.packaging.common.PythonPackageManagementListener
 import com.jetbrains.python.packaging.conda.CondaPackage
 import com.jetbrains.python.packaging.management.*
 import com.jetbrains.python.packaging.management.ui.PythonPackageManagerUI
-import com.jetbrains.python.packaging.management.ui.updatePackagesByNamesBackground
 import com.jetbrains.python.packaging.packageRequirements.PackageNode
 import com.jetbrains.python.packaging.packageRequirements.PythonPackageRequirementsTreeExtractor
 import com.jetbrains.python.packaging.repository.*
@@ -147,23 +147,6 @@ class PyPackagingToolWindowService(val project: Project, val serviceScope: Corou
     handleActionCompleted(message("python.packaging.notification.deleted", selectedPackages.joinToString(", ") { it.name }))
   }
 
-  suspend fun updatePackages(vararg packages: String) {
-    managerUI.updatePackagesByNamesBackground(packages.toList()) ?: return
-
-
-    val singlePackage = packages.singleOrNull()
-    if (singlePackage != null) {
-      val version = manager?.getInstalledPackage(singlePackage)?.version ?: return
-      handleActionCompleted(message("python.packaging.notification.updated", singlePackage, version))
-    }
-    else {
-      handleActionCompleted(message("python.packaging.notification.all.updated"))
-    }
-
-    refreshInstalledPackages()
-  }
-
-
   internal suspend fun initForSdk(sdk: Sdk?) {
     if (sdk == null) {
       toolWindowPanel?.packageListController?.setLoadingState(false)
@@ -232,22 +215,6 @@ class PyPackagingToolWindowService(val project: Project, val serviceScope: Corou
       }
     })
   }
-
-  /**
-   * Information about a Python package and its state in the package management system.
-   *
-   * @property packageData Information about the currently installed package
-   * @property repository The package repository where this package is hosted
-   * @property nextVersion The next available version of the package in its repository.
-   *                      Null if the package is already at its latest version
-   * @property dependencies List of packages that this package depends on
-   */
-  data class PackageInfo(
-    val packageData: InstalledPackage,
-    val repository: PyPackageRepository,
-    val nextVersion: String?,
-    val dependencies: List<RequirementPackage>
-  )
 
   suspend fun refreshInstalledPackages() {
     val sdk = currentSdk ?: return
@@ -420,7 +387,9 @@ class PyPackagingToolWindowService(val project: Project, val serviceScope: Corou
           .filter { it !in packageService.additionalRepositories }
           .forEach { packageService.addRepository(it) }
 
-        reloadPackages()
+        // LAME: pip based repository manager handles all added repositories via cache...
+        service<PythonSimpleRepositoryCache>().refresh()
+        refreshInstalledPackages()
       }
     }
   }

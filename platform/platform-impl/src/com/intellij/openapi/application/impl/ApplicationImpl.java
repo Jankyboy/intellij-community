@@ -53,8 +53,6 @@ import com.intellij.ui.ComponentUtil;
 import com.intellij.ui.scale.JBUIScale;
 import com.intellij.util.*;
 import com.intellij.util.concurrency.*;
-import com.intellij.util.concurrency.annotations.RequiresBackgroundThread;
-import com.intellij.util.concurrency.annotations.RequiresWriteLock;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.messages.Topic;
 import com.intellij.util.ui.EDT;
@@ -69,21 +67,18 @@ import org.jetbrains.annotations.*;
 
 import javax.swing.*;
 import java.awt.*;
-import java.lang.reflect.InvocationTargetException;
 import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 import static com.intellij.codeWithMe.ClientId.decorateCallable;
 import static com.intellij.codeWithMe.ClientId.decorateRunnable;
 import static com.intellij.ide.ShutdownKt.cancelAndJoinBlocking;
-import static com.intellij.openapi.application.CoroutinesKt.isBackgroundWriteAction;
 import static com.intellij.openapi.application.ModalityKt.asContextElement;
 import static com.intellij.openapi.application.RuntimeFlagsKt.getReportInvokeLaterWithoutModality;
 import static com.intellij.openapi.application.impl.AppImplKt.rethrowCheckedExceptions;
@@ -159,8 +154,6 @@ public final class ApplicationImpl extends ClientAwareComponentManager implement
   private final ReadActionCacheImpl myReadActionCacheImpl = new ReadActionCacheImpl();
 
   private final ThreadLocal<Boolean> myImpatientReader = ThreadLocal.withInitial(() -> false);
-
-  private AtomicInteger backgroundWriteActionCounter = new AtomicInteger(0);
 
   private final long myStartTime = System.currentTimeMillis();
   private boolean mySaveAllowed;
@@ -567,10 +560,10 @@ public final class ApplicationImpl extends ClientAwareComponentManager implement
            new Runnable() {
              @Override
              public void run() {
-               try (AccessToken ignored = ThreadContext.installThreadContext(
-                 ThreadContext.currentThreadContext().plus(asContextElement(modalityState)), true)) {
+               ThreadContext.installThreadContext(ThreadContext.currentThreadContext().plus(asContextElement(modalityState)), true, () -> {
                  runIntendedWriteActionOnCurrentThread(runnable);
-               }
+                 return Unit.INSTANCE;
+               });
              }
 
              @Override
@@ -1086,7 +1079,7 @@ public final class ApplicationImpl extends ClientAwareComponentManager implement
     if (EDT.isCurrentThreadEdt()) {
       return;
     }
-    if (!isBackgroundWriteAction(ThreadContext.currentThreadContext())) {
+    if (!InternalThreading.isBackgroundWriteActionAllowed()) {
       throw new IllegalStateException(
         "Background write action is not permitted on this thread. Consider using `backgroundWriteAction`, or switch to EDT");
     }
@@ -1128,19 +1121,19 @@ public final class ApplicationImpl extends ClientAwareComponentManager implement
     }
   }
 
-  private void incrementBackgroundWriteActionCounter() {
+  private static void incrementBackgroundWriteActionCounter() {
     if (EDT.isCurrentThreadEdt()) {
       return;
     }
-    backgroundWriteActionCounter.incrementAndGet();
+    InternalThreading.incrementBackgroundWriteActionCount();
   }
 
 
-  private void decrementBackgroundWriteActionCounter() {
+  private static void decrementBackgroundWriteActionCounter() {
     if (EDT.isCurrentThreadEdt()) {
       return;
     }
-    backgroundWriteActionCounter.decrementAndGet();
+    InternalThreading.decrementBackgroundWriteActionCount();
   }
 
   @Override
@@ -1247,7 +1240,7 @@ public final class ApplicationImpl extends ClientAwareComponentManager implement
 
   @Override
   public boolean isBackgroundWriteActionRunningOrPending() {
-    return backgroundWriteActionCounter.get() > 0;
+    return InternalThreading.isBackgroundWriteActionRunning();
   }
 
   @Override
@@ -1460,7 +1453,7 @@ public final class ApplicationImpl extends ClientAwareComponentManager implement
     Disposer.register(parentDisposable, () -> lock.removeWriteIntentReadActionListener(listener));
   }
 
-  public void addLockAcquisitionListener(@NotNull LockAcquisitionListener listener, @NotNull Disposable parentDisposable) {
+  public void addLockAcquisitionListener(@NotNull LockAcquisitionListener<?> listener, @NotNull Disposable parentDisposable) {
     lock.setLockAcquisitionListener(listener);
     Disposer.register(parentDisposable, () -> lock.removeLockAcquisitionListener(listener));
   }
@@ -1507,33 +1500,10 @@ public final class ApplicationImpl extends ClientAwareComponentManager implement
     return getThreadingSupport().isParallelizedReadAction(context);
   }
 
+  @Override
   public @NotNull ThreadingSupport getThreadingSupport() {
     return lock;
   }
 
-  @RequiresBackgroundThread(generateAssertion = false)
-  @RequiresWriteLock(generateAssertion = false)
-  public void invokeAndWaitWithTransferredWriteAction(Runnable runnable) throws Throwable {
-    assert isWriteAccessAllowed() : "Transferring of write action is permitted only if write lock is acquired";
-    assert !EDT.isCurrentThreadEdt() : "Transferring of write action is permitted only on background thread";
-    Ref<Throwable> exceptionRef = Ref.create();
-    getThreadingSupport().transferWriteActionAndBlock(toRun -> {
-      try {
-        EventQueue.invokeAndWait(toRun);
-        return Unit.INSTANCE;
-      }
-      catch (InterruptedException e) {
-        throw new RuntimeException(e);
-      }
-      catch (InvocationTargetException e) {
-        exceptionRef.set(e.getCause());
-        return Unit.INSTANCE;
-      }
-    }, () -> {
-      ((TransactionGuardImpl)TransactionGuard.getInstance()).performUserActivity(runnable);
-    });
-    if (!exceptionRef.isNull()) {
-      throw exceptionRef.get();
-    }
-  }
+
 }

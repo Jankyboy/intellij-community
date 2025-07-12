@@ -1,6 +1,8 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.application.impl
 
+import com.intellij.concurrency.currentThreadContext
+import com.intellij.concurrency.installThreadContext
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
@@ -15,6 +17,7 @@ import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.util.application
 import com.intellij.util.ui.EDT
+import com.intellij.util.ui.UIUtil
 import kotlinx.coroutines.*
 import kotlinx.coroutines.future.asCompletableFuture
 import org.assertj.core.api.Assertions.assertThat
@@ -119,8 +122,9 @@ class PlatformUtilitiesTest {
     val infiniteJob = Job(currentCoroutineContext().job)
     val jobWaiting = Job(currentCoroutineContext().job)
     val coroutine = launch(Dispatchers.EDT) {
-      getGlobalThreadingSupport().releaseTheAcquiredWriteIntentLockThenExecuteActionAndTakeWriteIntentLockBack {
+      TestOnlyThreading.releaseTheAcquiredWriteIntentLockThenExecuteActionAndTakeWriteIntentLockBack {
         jobWaiting.complete()
+        assertThat(application.isWriteIntentLockAcquired).isFalse
         infiniteJob.asCompletableFuture().join()
       }
     }
@@ -204,7 +208,7 @@ class PlatformUtilitiesTest {
       backgroundWriteAction {
         bgWaStarted.complete()
         Thread.sleep(100) // give chance EDT to start waiting for a coroutine
-        (application as ApplicationImpl).invokeAndWaitWithTransferredWriteAction {
+        InternalThreading.invokeAndWaitWithTransferredWriteAction {
           assertThat(EDT.isCurrentThreadEdt()).isTrue
           assertThat(application.isWriteAccessAllowed).isTrue
           assertThat(application.isReadAccessAllowed).isTrue
@@ -222,7 +226,7 @@ class PlatformUtilitiesTest {
   @Test
   fun `transferredWriteAction can run as invokeAndWait`(): Unit = timeoutRunBlocking(context = Dispatchers.Default) {
     backgroundWriteAction {
-      (application as ApplicationImpl).invokeAndWaitWithTransferredWriteAction {
+      InternalThreading.invokeAndWaitWithTransferredWriteAction {
         assertThat(EDT.isCurrentThreadEdt()).isTrue
         assertThat(application.isWriteAccessAllowed).isTrue
         assertThat(application.isReadAccessAllowed).isTrue
@@ -236,7 +240,7 @@ class PlatformUtilitiesTest {
   @Test
   fun `transferredWriteAction is not available without write lock`(): Unit = timeoutRunBlocking(context = Dispatchers.Default) {
     assertThrows<AssertionError> {
-      (application as ApplicationImpl).invokeAndWaitWithTransferredWriteAction {
+      InternalThreading.invokeAndWaitWithTransferredWriteAction {
         fail<Nothing>()
       }
     }
@@ -245,7 +249,7 @@ class PlatformUtilitiesTest {
   @Test
   fun `transferredWriteAction is not available on EDT`(): Unit = timeoutRunBlocking(context = Dispatchers.ui(UiDispatcherKind.RELAX)) {
     assertThrows<AssertionError> {
-      (application as ApplicationImpl).invokeAndWaitWithTransferredWriteAction {
+      InternalThreading.invokeAndWaitWithTransferredWriteAction {
         fail<Nothing>()
       }
     }
@@ -255,7 +259,7 @@ class PlatformUtilitiesTest {
   fun `transferredWriteAction rethrows exceptions`(): Unit = timeoutRunBlocking(context = Dispatchers.Default) {
     backgroundWriteAction {
       val exception = assertThrows<IllegalStateException> {
-        (application as ApplicationImpl).invokeAndWaitWithTransferredWriteAction {
+        InternalThreading.invokeAndWaitWithTransferredWriteAction {
           throw IllegalStateException("custom message")
         }
       }
@@ -304,11 +308,28 @@ class PlatformUtilitiesTest {
         })
       }
       catch (_: CustomException) {
-        delay(1000)
+        customExceptionWasRethrown.set(true)
+      }
+      try {
+        UIUtil.dispatchAllInvocationEvents()
+      }
+      catch (e: CustomException) {
         customExceptionWasRethrown.set(true)
       }
     }
     assertThat(customExceptionWasRethrown.get()).isTrue()
     assertThat(writeActionThrew.get()).isFalse()
+  }
+
+  @Test
+  fun `parallelization of write-intent lock removes write-intent access`(): Unit = timeoutRunBlocking(context = Dispatchers.EDT) {
+    val (lockContext, lockCleanup) = getGlobalThreadingSupport().getPermitAsContextElement(currentThreadContext(), true)
+    installThreadContext(lockContext).use {
+      try {
+        assertThat(application.isWriteIntentLockAcquired).isFalse
+      } finally {
+        lockCleanup()
+      }
+    }
   }
 }

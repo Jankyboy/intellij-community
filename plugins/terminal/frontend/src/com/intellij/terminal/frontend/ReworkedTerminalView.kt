@@ -24,7 +24,6 @@ import com.intellij.openapi.editor.impl.SoftWrapModelImpl
 import com.intellij.openapi.editor.impl.softwrap.EmptySoftWrapPainter
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.impl.text.TextEditorProvider
-import com.intellij.openapi.observable.util.addFocusListener
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.IdeFocusManager
@@ -191,7 +190,14 @@ internal class ReworkedTerminalView(
     listenPanelSizeChanges()
     listenAlternateBufferSwitch()
 
-    TerminalVfsSynchronizer.install(controller, ::addFocusListener, this)
+    val synchronizer = TerminalVfsSynchronizer(
+      controller,
+      outputModel,
+      sessionModel,
+      terminalPanel,
+      coroutineScope.childScope("TerminalVfsSynchronizer"),
+    )
+    outputEditor.putUserData(TerminalVfsSynchronizer.KEY, synchronizer)
   }
 
   override fun addTerminationCallback(onTerminated: Runnable, parentDisposable: Disposable) {
@@ -446,10 +452,6 @@ internal class ReworkedTerminalView(
     error("connectToTty is not supported in ReworkedTerminalView")
   }
 
-  private fun addFocusListener(parentDisposable: Disposable, listener: FocusListener) {
-    terminalPanel.addFocusListener(parentDisposable, listener)
-  }
-
   private fun configureInlineCompletion(editor: EditorEx, model: TerminalOutputModel, coroutineScope: CoroutineScope, parentDisposable: Disposable) {
     InlineCompletion.install(editor, coroutineScope)
     // Inline completion handler needs to be manually disposed
@@ -465,6 +467,10 @@ internal class ReworkedTerminalView(
         val inlineCompletionTypingSession = InlineCompletion.getHandlerOrNull(editor)?.typingSessionTracker
         val lastBlock = editor.getUserData(TerminalBlocksModel.KEY)?.blocks?.lastOrNull() ?: return
         val lastBlockCommandStartIndex = if (lastBlock.commandStartOffset != -1) lastBlock.commandStartOffset else lastBlock.startOffset
+
+        // When resizing the terminal, the blocks model may fall out of sync for a short time.
+        // These updates will never trigger a completion, so we return early to avoid reading out of bounds.
+        if (lastBlockCommandStartIndex >= editor.document.textLength) return
         val curCommandText = editor.document.text.substring(lastBlockCommandStartIndex, editor.document.textLength).trim()
 
         if (isTypeAhead) {

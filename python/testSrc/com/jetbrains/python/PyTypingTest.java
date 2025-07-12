@@ -4524,7 +4524,7 @@ public class PyTypingTest extends PyTestCase {
 
   // PY-36444
   public void testTextIOInferredWithContextManagerDecorator() {
-    doTest("TextIOWrapper",
+    doTest("TextIOWrapper[_WrappedBuffer]",
            """
              from contextlib import contextmanager
                              
@@ -5838,7 +5838,7 @@ public class PyTypingTest extends PyTestCase {
   }
 
   public void testDataclassTransformOwnKwOnlyOmittedAndTakenFromKwOnlyDefault() {
-    doTestExpressionUnderCaret("(Any, id: int, name: str) -> MyClass", """
+    doTestExpressionUnderCaret("(*, id: int, name: str) -> MyClass", """
       from typing import dataclass_transform, Callable
       
       
@@ -5858,7 +5858,7 @@ public class PyTypingTest extends PyTestCase {
   }
 
   public void testDataclassTransformFieldSpecifierKwOnlyDefaultOverridesDecoratorsKwOnly() {
-    doTestExpressionUnderCaret("(id: str, Any, addr: list[str]) -> Order", """
+    doTestExpressionUnderCaret("(id: str, *, addr: list[str]) -> Order", """
       from typing import Callable, dataclass_transform
       
       def my_field(kw_only=False):
@@ -5878,7 +5878,7 @@ public class PyTypingTest extends PyTestCase {
   }
 
   public void testDataclassTransformFieldSpecifierKwOnlyDefaultOverridesDecoratorsKwOnlyDefault() {
-    doTestExpressionUnderCaret("(id: str, Any, addr: list[str]) -> Order", """
+    doTestExpressionUnderCaret("(id: str, *, addr: list[str]) -> Order", """
       from typing import Callable, dataclass_transform
       
       def my_field(kw_only=False):
@@ -5898,7 +5898,7 @@ public class PyTypingTest extends PyTestCase {
   }
 
   public void testDataclassTransformFieldSpecifierKwOnlyOverridesDecoratorsKwOnly() {
-    doTestExpressionUnderCaret("(id: str, Any, addr: list[str]) -> Order", """
+    doTestExpressionUnderCaret("(id: str, *, addr: list[str]) -> Order", """
       from typing import Callable, dataclass_transform
       
       def my_field(kw_only=False):
@@ -5918,7 +5918,7 @@ public class PyTypingTest extends PyTestCase {
   }
 
   public void testDataclassTransformFieldSpecifierKwOnlyOverridesDecoratorsKwOnlyDefault() {
-    doTestExpressionUnderCaret("(id: str, Any, addr: list[str]) -> Order", """
+    doTestExpressionUnderCaret("(id: str, *, addr: list[str]) -> Order", """
       from typing import Callable, dataclass_transform
       
       def my_field(kw_only=False):
@@ -6510,6 +6510,140 @@ public class PyTypingTest extends PyTestCase {
             def func(p: tuple[int, *tuple[complex, *tuple[str, ...]]]):
                 expr = test_seq(p)
             """);
+  }
+
+  // PY-82454
+  public void testMethodReturningTypeParameterCalledOnNonParameterizedGenericWithDefault() {
+    doTest("str", """
+      class Box[T=str]:
+          def m(self) -> T:
+              ...
+      
+      def f() -> Box:
+          ...
+      
+      expr = f().m()
+      """);
+  }
+
+  // PY-82454
+  public void testAttributeOfTypeParameterTypeAccessedOnNonParameterizedGenericWithDefault() {
+    doTest("str", """
+      class Box[T=str]:
+          attr: T
+      
+      def f() -> Box:
+          ...
+      
+      expr = f().attr
+      """);
+  }
+
+  // PY-82454
+  public void testNonParameterizedGenericWithDefaultUsedInOtherType() {
+    doTest("list[Box[str]]", """
+      class Box[T=str]:
+          def m(self) -> T:
+              ...
+      
+      def f() -> list[Box]:
+          ...
+      
+      expr = f()
+      """);
+  }
+
+  // PY-82454
+  public void testMethodReturningSelfCalledOnNonParameterizedGenericWithDefault() {
+    doTest("Box[str]", """
+      from typing import Self
+      
+      class Box[T=str]:
+          def m(self) -> Self:
+              ...
+      
+      def f() -> Box:  # not parameterized, simulating open() -> TextIOWrapper
+          ...
+      
+      expr = f().m()
+      """);
+  }
+
+  // PY-82454
+  public void testMethodReturningTypeParameterizedWithSelfCalledOfNonParameterizedGenericWithDefault() {
+    doTest("list[Box[str]]", """
+      from typing import Self
+      
+      class Box[T=str]:
+          def m(self) -> list[Self]:
+              ...
+      
+      def f() -> Box:  # not parameterized, simulating open() -> TextIOWrapper
+          ...
+      
+      expr = f().m()
+      """);
+  }
+
+  // PY-82454
+  public void testMethodReturningSelfCalledOnNonParameterizedGenericWithDefaultAndBound() {
+    doTest("Box[str]", """
+      from typing import Self
+      
+      class Box[T : str = str]:
+          def m(self) -> Self:
+              ...
+      
+      def f() -> Box:  # not parameterized, simulating open() -> TextIOWrapper
+          ...
+      
+      expr = f().m()
+      """);
+  }
+
+  // PY-82486
+  public void testBogusAncestorTypeVarScopeOwnerInference() {
+    doTest("T | str", """
+      from typing import Generic, TypeVar
+      
+      T = TypeVar("T")
+      
+      class Box(Generic[T]): ...
+      class Box2(Box[T]): ...
+      
+      def unbox(x: Box[T]) -> T: ...
+      
+      def f(x: Box2[T] | None, y: T):
+          b: Box2[str]
+          expr = y or unbox(b)
+      """);
+  }
+
+  // PY-82500
+  public void testFunctionCallCannotBeUsedAsTypeHint() {
+    doTest("Any", """
+      def func() -> type[str]: ...
+      expr: func()
+      """);
+  }
+
+  // PY-82500
+  public void testOrdinarySubscriptionExpressionCannotBeUsedAsTypeHint() {
+    doTest("Any", """
+      xs: list[type[str]]
+      expr: xs[0]
+      """);
+  }
+
+  // PY-82500
+  public void testOrdinaryBinaryExpressionCannotBeUsedAsTypeHint() {
+    doTest("Any", """
+      class B:
+          def __add__(self, item: int) -> type[str]:
+              ...
+      x: B
+      expr: x + 1
+      """);
   }
 
   private void doTestNoInjectedText(@NotNull String text) {

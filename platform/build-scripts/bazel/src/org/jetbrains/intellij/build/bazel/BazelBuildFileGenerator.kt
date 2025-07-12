@@ -31,6 +31,12 @@ internal class ModuleList(
   @JvmField val ultimate: List<ModuleDescriptor>,
   val skippedModules: List<String>,
 ) {
+  private val nameToDescriptor = community.associateBy { it.module.name } + ultimate.associateBy { it.module.name }
+
+  fun getModuleDescriptor(name: String): ModuleDescriptor {
+    return nameToDescriptor[name] ?: error("Unknown module name: $name")
+  }
+
   @JvmField val deps = IdentityHashMap<ModuleDescriptor, ModuleDeps>()
   @JvmField val testDeps = IdentityHashMap<ModuleDescriptor, ModuleDeps>()
 }
@@ -51,21 +57,20 @@ internal data class CustomModuleDescription(
 
 internal val customModules: Map<String, CustomModuleDescription> = listOf(
   CustomModuleDescription(moduleName = "intellij.idea.community.build.zip", bazelPackage = "@rules_jvm//zip", bazelTargetName = "zip",
-                          outputDirectory = "out/bazel-bin/external/rules_jvm+/zip"),
+                          outputDirectory = "out/bazel-out/jvm-fastbuild/bin/external/rules_jvm+/zip"),
   CustomModuleDescription(moduleName = "intellij.platform.jps.build.dependencyGraph", bazelPackage = "@rules_jvm//dependency-graph", bazelTargetName = "dependency-graph",
-                          outputDirectory = "out/bazel-bin/external/rules_jvm+/dependency-graph"),
+                          outputDirectory = "out/bazel-out/jvm-fastbuild/bin/external/rules_jvm+/dependency-graph"),
   CustomModuleDescription(moduleName = "intellij.platform.jps.build.javac.rt", bazelPackage = "@rules_jvm//jps-builders-6", bazelTargetName = "build-javac-rt",
-                          outputDirectory = "out/bazel-bin/external/rules_jvm+/jps-builders-6"),
+                          outputDirectory = "out/bazel-out/jvm-fastbuild/bin/external/rules_jvm+/jps-builders-6"),
 ).associateBy { it.moduleName }
 
 @Suppress("ReplaceGetOrSet")
 internal class BazelBuildFileGenerator(
-  @JvmField val projectDir: Path,
+  val ultimateRoot: Path?,
+  val communityRoot: Path,
   private val project: JpsProject,
-  @JvmField val urlCache: UrlCache,
+  val urlCache: UrlCache,
 ) {
-  @JvmField val communityDir: Path = projectDir.resolve("community")
-
   @JvmField
   val javaExtensionService: JpsJavaExtensionService = JpsJavaExtensionService.getInstance()
   private val projectJavacSettings = javaExtensionService.getCompilerConfiguration(project)
@@ -93,15 +98,16 @@ internal class BazelBuildFileGenerator(
                       )
     }
 
-    val isCommunity = imlDir.startsWith(communityDir)
-    if (isCommunity && !bazelBuildDir.startsWith(communityDir)) {
+    val isCommunity = imlDir.startsWith(communityRoot)
+    if (isCommunity && !bazelBuildDir.startsWith(communityRoot)) {
       throw IllegalStateException("Computed dir for BUILD.bazel for community module ${module.name} is not under community directory")
     }
 
     val resourceDescriptors = computeResources(module = module, contentRoots = contentRoots, bazelBuildDir = bazelBuildDir, type = JavaResourceRootType.RESOURCE)
 
+    val imlFile = imlDir.resolve("${module.name}.iml")
     val moduleContent = ModuleDescriptor(
-      imlFile = imlDir.resolve("${module.name}.iml"),
+      imlFile = imlFile,
       module = module,
       contentRoots = contentRoots,
       bazelBuildFileDir = bazelBuildDir,
@@ -110,8 +116,15 @@ internal class BazelBuildFileGenerator(
       resources = resourceDescriptors,
       testSources = computeSources(module = module, contentRoots = contentRoots, bazelBuildDir = bazelBuildDir, type = JavaSourceRootType.TEST_SOURCE),
       testResources = computeResources(module = module, contentRoots = contentRoots, bazelBuildDir = bazelBuildDir, type = JavaResourceRootType.TEST_RESOURCE),
-      targetName = jpsModuleNameToBazelBuildName(module = module, baseBuildDir = bazelBuildDir, projectDir = projectDir),
-      relativePathFromProjectRoot = bazelBuildDir.relativeTo(projectDir),
+      targetName = jpsModuleNameToBazelBuildName(module = module, baseBuildDir = bazelBuildDir, communityRoot = communityRoot, ultimateRoot = ultimateRoot),
+      relativePathFromProjectRoot = if (isCommunity) {
+        bazelBuildDir.relativeTo(communityRoot)
+      } else {
+        check(ultimateRoot != null) {
+          "Trying to process ultimate module $imlFile while ultimate root is not present"
+        }
+        bazelBuildDir.relativeTo(ultimateRoot)
+      },
     )
     moduleToDescriptor.put(module, moduleContent)
 
@@ -125,20 +138,37 @@ internal class BazelBuildFileGenerator(
     return moduleContent
   }
 
-  @Suppress("SSBasedInspection")
-  @JvmField
   val libs: ObjectOpenHashSet<MavenLibrary> = ObjectOpenHashSet<MavenLibrary>()
   private val providedRequested = HashSet<LibOwner>()
-  @Suppress("SSBasedInspection")
-  @JvmField
   val localLibs: ObjectOpenHashSet<LocalLibrary> = ObjectOpenHashSet<LocalLibrary>()
 
   private val generated = IdentityHashMap<ModuleDescriptor, Boolean>()
 
-  private val communityLibOwner = LibOwnerDescriptor("@lib", projectDir.resolve("community/lib/BUILD.bazel"), projectDir.resolve("community/lib/MODULE.bazel"))
-  private val ultimateLibOwner = LibOwnerDescriptor("@ultimate_lib", projectDir.resolve("lib/BUILD.bazel"), projectDir.resolve("lib/MODULE.bazel"))
+  private val communityLibOwner = LibOwnerDescriptor(
+    repoLabel = "@lib",
+    buildFile = communityRoot.resolve("lib/BUILD.bazel"),
+    moduleFile = communityRoot.resolve("lib/MODULE.bazel"),
+    isCommunity = true
+  )
 
-  fun getLibOwner(isCommunity: Boolean): LibOwnerDescriptor = if (isCommunity) communityLibOwner else ultimateLibOwner
+  private val ultimateLibOwner = ultimateRoot?.let { ultimate ->
+    LibOwnerDescriptor(
+      repoLabel = "@ultimate_lib",
+      buildFile = ultimate.resolve("lib/BUILD.bazel"),
+      moduleFile = ultimate.resolve("lib/MODULE.bazel"),
+      isCommunity = false
+    )
+  }
+
+  fun getLibOwner(isCommunity: Boolean): LibOwnerDescriptor = if (isCommunity) {
+    communityLibOwner
+  }
+  else {
+    require(ultimateLibOwner != null) {
+      "requesting ultimate lib owner, but ultimate root is not present"
+    }
+    ultimateLibOwner
+  }
 
   fun generateLibs(
     jarRepositories: List<JarRepository>,
@@ -150,7 +180,7 @@ internal class BazelBuildFileGenerator(
       destination = TreeMap(
         compareBy(
           { it.sectionName },
-          { it.buildFile.relativize(projectDir).invariantSeparatorsPathString },
+          { it.buildFile.invariantSeparatorsPathString },
         )
       ),
       keySelector = { it.lib.owner },
@@ -223,7 +253,7 @@ internal class BazelBuildFileGenerator(
   }
 
   fun computeModuleList(): ModuleList {
-    val bazelPluginDir = projectDir.resolve("plugins/bazel")
+    val bazelPluginDir = ultimateRoot?.resolve("plugins/bazel")
 
     val community = ArrayList<ModuleDescriptor>()
     val ultimate = ArrayList<ModuleDescriptor>()
@@ -236,7 +266,7 @@ internal class BazelBuildFileGenerator(
       }
 
       val imlDir = JpsModelSerializationDataService.getBaseDirectory(module)!!.toPath()
-      if (imlDir.startsWith(bazelPluginDir)) {
+      if (bazelPluginDir != null && imlDir.startsWith(bazelPluginDir)) {
         // Skip bazel plugin, they have their own bazel definitions
         skippedModules.add(module.name)
         continue
@@ -259,8 +289,10 @@ internal class BazelBuildFileGenerator(
       if (hasSources || module.testSources.isEmpty()) {
         result.deps.put(module, generateDeps(module = module, isTest = false, context = this, hasSources = hasSources))
       }
-      if (module.testSources.isNotEmpty()) {
-        result.testDeps.put(module, generateDeps(module = module, isTest = true, context = this, hasSources = true))
+
+      val hasTestSources = module.testSources.isNotEmpty()
+      if (hasTestSources || isTestClasspathModule(module)) {
+        result.testDeps.put(module, generateDeps(module = module, isTest = true, context = this, hasSources = hasTestSources))
       }
     }
 
@@ -322,12 +354,12 @@ internal class BazelBuildFileGenerator(
     if (!dependentIsCommunity && module.isCommunity) {
       require(module.isCommunity)
 
-      val path = checkAndGetRelativePath(projectDir, module.bazelBuildFileDir).invariantSeparatorsPathString.removePrefix("community/").takeIf { it != "community" } ?: ""
-      if (path.substringAfterLast('/') == module.targetName) {
-        return "@community//$path"
+      val path = checkAndGetRelativePath(communityRoot, module.bazelBuildFileDir).invariantSeparatorsPathString
+      return if (path.substringAfterLast('/') == module.targetName) {
+        "@community//$path"
       }
       else {
-        return "@community//$path:${module.targetName}"
+        "@community//$path:${module.targetName}"
       }
     }
 
@@ -337,11 +369,32 @@ internal class BazelBuildFileGenerator(
       }
     }
 
-    var path = checkAndGetRelativePath(projectDir, module.bazelBuildFileDir).invariantSeparatorsPathString
-    val relativeToCommunityPath = path.removePrefix("community/")
-    path = when {
-      path == relativeToCommunityPath -> if (path == "community" && dependentIsCommunity) "//" else "//$path"
-      dependentIsCommunity -> if (relativeToCommunityPath == "community") "//" else "//$relativeToCommunityPath"
+    val relativeToCommunityPath = if (module.bazelBuildFileDir.startsWith(communityRoot)) {
+      checkAndGetRelativePath(communityRoot, module.bazelBuildFileDir).invariantSeparatorsPathString
+    } else {
+      null
+    }
+
+    val relativeToUltimatePath = if (ultimateRoot != null) {
+      checkAndGetRelativePath(ultimateRoot, module.bazelBuildFileDir).invariantSeparatorsPathString
+    } else {
+      null
+    }
+
+    val path = when {
+      // relativeToCommunityPath == null: `module` is ultimate module
+      relativeToCommunityPath == null -> {
+        check(relativeToUltimatePath != null) {
+          "Trying to process ultimate (non-community) module ${module.module.name} while ultimate root is not present"
+        }
+
+        require(!dependentIsCommunity) {
+          "Community module ${dependent.module.name} cannot depend on ultimate module ${module.module.name}"
+        }
+
+        "//$relativeToUltimatePath"
+      }
+      dependentIsCommunity -> "//$relativeToCommunityPath"
       else -> "@community//$relativeToCommunityPath"
     }
 
@@ -415,6 +468,16 @@ internal class BazelBuildFileGenerator(
         else if (module.name == "fleet.rpc") {
           option("exported_compiler_plugins", arrayOf("@lib//:rpc-plugin"))
         }
+        else if (module.name == "fleet.noria.cells" ||
+                 module.name == "fleet.noria.html" ||
+                 module.name == "fleet.noria.ui" ||
+                 module.name == "fleet.noria.ui.examples" ||
+                 module.name == "fleet.noria.windowManagement.api" ||
+                 module.name == "fleet.noria.windowManagement.extensions" ||
+                 module.name == "fleet.noria.windowManagement.impl" ||
+                 module.name == "fleet.noria.windowManagement.implDesktopMacOS") {
+          option("exported_compiler_plugins", arrayOf("@lib//:noria-plugin"))
+        }
 
         var deps = moduleList.deps.get(moduleDescriptor)
         if (deps != null && deps.provided.isNotEmpty()) {
@@ -438,26 +501,25 @@ internal class BazelBuildFileGenerator(
       }
     }
     else {
-      load("@rules_java//java:defs.bzl", "java_library")
+      load("@rules_jvm//:jvm.bzl", "jvm_library")
 
-      val target = Target("java_library").apply {
+      val target = Target("jvm_library").apply {
         option("name", moduleDescriptor.targetName)
         visibility(arrayOf("//visibility:public"))
+        option("srcs", sourcesToGlob(sources, moduleDescriptor))
 
-        if (moduleDescriptor.testSources.isEmpty()) {
-          val deps = moduleList.deps.get(moduleDescriptor)
-          renderDeps(
-            deps = deps?.copy(plugins = emptyList()), // do not apply plugins to an empty library regardless of dependencies
-            target = this,
-            resourceDependencies = resourceTargets,
-            forTests = false
-          )
-        }
+        val deps = moduleList.deps.get(moduleDescriptor)
+        renderDeps(
+          deps = deps?.copy(plugins = emptyList()), // do not apply plugins to an empty library regardless of dependencies
+          target = this,
+          resourceDependencies = resourceTargets,
+          forTests = false
+        )
       }
 
       val addPhonyTarget =
         // meaning there are some attributes besides name and visibility
-        target.optionCount() != 2 ||
+        target.optionCount() != 3 ||
         isUsedAsTestDependency ||
         module.name == "kotlin.base.frontend-agnostic" ||
         module.name == "intellij.platform.monolith" ||
@@ -468,32 +530,46 @@ internal class BazelBuildFileGenerator(
         addTarget(target)
 
         productionCompileTargets.add(moduleDescriptor.targetName)
-        // https://bazel.build/reference/be/java#java_library -> lib${name}.jar
-        productionCompileJars.add("lib" + moduleDescriptor.targetName)
+        productionCompileJars.add(moduleDescriptor.targetName)
       }
     }
 
-    if (moduleDescriptor.testSources.isNotEmpty()) {
-      load("@rules_jvm//:jvm.bzl", "jvm_test")
-      load("@rules_jvm//:jvm.bzl", "jvm_library")
-      load("@community//build:tests-options.bzl", "jps_test")
+    val moduleHasTestSources = moduleDescriptor.testSources.isNotEmpty()
 
+    // Decide whether to render a test target at all
+    if (moduleHasTestSources || isTestClasspathModule(moduleDescriptor)) {
       val testLibTargetName = "${moduleDescriptor.targetName}$TEST_LIB_NAME_SUFFIX"
+      testCompileTargets.add(testLibTargetName)
+
+      val testDeps = moduleList.testDeps.get(moduleDescriptor)
+
+      load("@rules_jvm//:jvm.bzl", "jvm_library")
       target("jvm_library") {
         option("name", testLibTargetName)
-        testCompileTargets.add(testLibTargetName)
 
         visibility(arrayOf("//visibility:public"))
+
         option("srcs", sourcesToGlob(moduleDescriptor.testSources, moduleDescriptor))
+
         javacOptionsLabel?.let { option("javac_opts", it) }
         kotlincOptionsLabel?.let { option("kotlinc_opts", it) }
 
-        renderDeps(deps = moduleList.testDeps.get(moduleDescriptor), target = this, resourceDependencies = resourceTargets, forTests = true)
+        renderDeps(deps = testDeps, target = this, resourceDependencies = resourceTargets, forTests = true)
       }
 
-      target("jps_test") {
-        option("name", "${moduleDescriptor.targetName}_test")
-        option("runtime_deps", arrayOf(":$testLibTargetName"))
+      if (moduleHasTestSources) {
+        load("@rules_jvm//:jvm.bzl", "jvm_test")
+        load("@community//build:tests-options.bzl", "jps_test")
+
+        val mainModuleLabel = getTestClasspathModule(moduleDescriptor, moduleList)?.let { mainModule ->
+          val productionLabel = getBazelDependencyLabel(mainModule, moduleDescriptor)
+          "$productionLabel$TEST_LIB_NAME_SUFFIX"
+        }
+
+        target("jps_test") {
+          option("name", "${moduleDescriptor.targetName}_test")
+          option("runtime_deps", listOfNotNull(":$testLibTargetName", mainModuleLabel))
+        }
       }
     }
 
@@ -520,8 +596,8 @@ internal class BazelBuildFileGenerator(
 
     val jarOutputDirectory = when {
       customModule != null -> customModule.outputDirectory
-      moduleDescriptor.isCommunity -> "out/bazel-bin/external/community+/$bazelModuleRelativePath"
-      else -> "out/bazel-bin/$bazelModuleRelativePath"
+      moduleDescriptor.isCommunity -> "out/bazel-out/jvm-fastbuild/bin/external/community+/$bazelModuleRelativePath"
+      else -> "out/bazel-out/jvm-fastbuild/bin/$bazelModuleRelativePath"
     }
 
     fun addPackagePrefix(target: String): String =
@@ -531,7 +607,7 @@ internal class BazelBuildFileGenerator(
       // full target name instead of just jar for intellij.dotenv.*
       // like @community//plugins/env-files-support:dotenv-go_resources
       jarName.startsWith("@community//") ->
-        "out/bazel-bin/external/community+/${jarName.substringAfter("@community//").replace(':', '/')}.jar"
+        "out/bazel-out/jvm-fastbuild/bin/external/community+/${jarName.substringAfter("@community//").replace(':', '/')}.jar"
       else -> "$jarOutputDirectory/$jarName.jar"
     }
 
@@ -647,6 +723,23 @@ internal class BazelBuildFileGenerator(
   }
 }
 
+// This is a usual convention in the intellij repository for storing classpath for running tests
+// ex.: intellij.idea.community.main intellij.rubymine.main
+private fun isTestClasspathModule(module: ModuleDescriptor): Boolean {
+  return module.module.name.split('.').contains("main")
+}
+
+private fun getTestClasspathModule(module: ModuleDescriptor, moduleList: ModuleList): ModuleDescriptor? {
+  val moduleName = module.module.name
+
+  val mainModuleName = when {
+    moduleName.startsWith("kotlin.jvm-debugger.") -> "intellij.idea.community.main"
+    else -> null
+  }
+
+  return mainModuleName?.let { moduleList.getModuleDescriptor(it) }
+}
+
 private fun computeSources(module: JpsModule, contentRoots: List<Path>, bazelBuildDir: Path, type: JpsModuleSourceRootType<*>): List<SourceDirDescriptor> {
   return module.sourceRoots.asSequence()
     .filter { it.rootType == type }
@@ -725,14 +818,14 @@ private fun isUsed(
          deps.runtimeDeps.any { it.substringAfterLast(':').substringAfterLast('/').contains(referencedModule.targetName) }
 }
 
-private fun jpsModuleNameToBazelBuildName(module: JpsModule, baseBuildDir: Path, projectDir: Path): @NlsSafe String {
+private fun jpsModuleNameToBazelBuildName(module: JpsModule, baseBuildDir: Path, communityRoot: Path, ultimateRoot: Path?): @NlsSafe String {
   val moduleName = module.name
   val customModule = customModules.get(moduleName)
   if (customModule != null) {
     return customModule.bazelTargetName
   }
 
-  val baseDirFilename = if (baseBuildDir == projectDir) null else baseBuildDir.fileName.toString()
+  val baseDirFilename = if (baseBuildDir == communityRoot || baseBuildDir == ultimateRoot) null else baseBuildDir.fileName.toString()
   if (baseDirFilename != null && baseDirFilename != "resources" &&
       (moduleName.endsWith(".$baseDirFilename") || (camelToSnakeCase(moduleName, '-')).endsWith(".$baseDirFilename"))) {
     return baseDirFilename
@@ -743,7 +836,12 @@ private fun jpsModuleNameToBazelBuildName(module: JpsModule, baseBuildDir: Path,
     .removePrefix("intellij.idea.community.")
     .removePrefix("intellij.")
 
-  val parentDirDirName = if (baseBuildDir == projectDir) null else if (baseBuildDir.parent == projectDir) "idea" else baseBuildDir.parent.fileName.toString()
+  val parentDirDirName = when {
+    baseBuildDir == ultimateRoot -> null
+    baseBuildDir.parent == ultimateRoot -> "idea"
+    else -> baseBuildDir.parent.fileName.toString()
+  }
+
   return result
     .let { if (parentDirDirName != null) it.removePrefix("$parentDirDirName.") else it }
     .replace('.', '-')

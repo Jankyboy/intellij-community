@@ -123,6 +123,16 @@ public abstract class KotlinFirJoinLinesTestGenerated extends AbstractKotlinFirJ
             runTest("../../idea/tests/testData/joinLines/addSemicolon/PropertyAndFunction.kt");
         }
 
+        @TestMetadata("PropertyAndPropertyAccessor.kt")
+        public void testPropertyAndPropertyAccessor() throws Exception {
+            runTest("../../idea/tests/testData/joinLines/addSemicolon/PropertyAndPropertyAccessor.kt");
+        }
+
+        @TestMetadata("PropertyWithInitializerAndPropertyAccessor.kt")
+        public void testPropertyWithInitializerAndPropertyAccessor() throws Exception {
+            runTest("../../idea/tests/testData/joinLines/addSemicolon/PropertyWithInitializerAndPropertyAccessor.kt");
+        }
+
         @TestMetadata("WhileAndACall.kt")
         public void testWhileAndACall() throws Exception {
             runTest("../../idea/tests/testData/joinLines/addSemicolon/WhileAndACall.kt");
@@ -584,6 +594,11 @@ public abstract class KotlinFirJoinLinesTestGenerated extends AbstractKotlinFirJ
         @TestMetadata("hasComment5.kt")
         public void testHasComment5() throws Exception {
             runTest("../../idea/tests/testData/joinLines/whenEntry/hasComment5.kt");
+        }
+
+        @TestMetadata("hasComment6.kt")
+        public void testHasComment6() throws Exception {
+            runTest("../../idea/tests/testData/joinLines/whenEntry/hasComment6.kt");
         }
 
         @TestMetadata("in.kt")

@@ -19,6 +19,7 @@
 - *sf:Companion:com.intellij.ide.structureView.logical.model.LogicalModelPresentationProvider$Companion
 - <init>():V
 - getColoredText(java.lang.Object):java.util.List
+- getTooltipText(java.lang.Object):java.lang.String
 - handleClick(java.lang.Object,I):java.util.concurrent.CompletableFuture
 - isAutoExpand(java.lang.Object):Z
 *f:com.intellij.ide.structureView.logical.model.LogicalModelPresentationProvider$Companion
@@ -34,6 +35,7 @@
 - f:getModel():java.lang.Object
 - f:getParent():com.intellij.ide.structureView.logical.model.LogicalStructureAssembledModel
 - f:getProject():com.intellij.openapi.project.Project
+- f:hasChildren():Z
 - hashCode():I
 *f:com.intellij.ide.structureView.logical.model.LogicalStructureAssembledModel$Companion
 - f:getInstance(com.intellij.openapi.project.Project,java.lang.Object):com.intellij.ide.structureView.logical.model.LogicalStructureAssembledModel

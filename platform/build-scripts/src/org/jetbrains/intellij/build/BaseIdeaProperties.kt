@@ -4,6 +4,7 @@ package org.jetbrains.intellij.build
 import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.plus
+import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.intellij.build.impl.PlatformJarNames.TEST_FRAMEWORK_JAR
 import org.jetbrains.intellij.build.impl.PlatformLayout
 import org.jetbrains.intellij.build.kotlin.KotlinPluginBuilder
@@ -21,7 +22,6 @@ val IDEA_BUNDLED_PLUGINS: PersistentList<String> = DEFAULT_BUNDLED_PLUGINS + seq
   "intellij.terminal",
   "intellij.textmate",
   "intellij.editorconfig.plugin",
-  "intellij.settingsSync",
   "intellij.configurationScript",
   "intellij.json",
   "intellij.yaml",
@@ -45,18 +45,14 @@ val IDEA_BUNDLED_PLUGINS: PersistentList<String> = DEFAULT_BUNDLED_PLUGINS + seq
   "intellij.java.coverage",
   "intellij.java.decompiler",
   "intellij.eclipse",
-  "intellij.platform.langInjection",
+  "intellij.platform.langInjection.plugin",
   "intellij.java.debugger.streams",
-  "intellij.completionMlRanking",
-  "intellij.completionMlRankingModels",
-  "intellij.statsCollector",
   "intellij.sh",
   "intellij.markdown",
   "intellij.mcpserver",
   "intellij.webp",
   "intellij.grazie",
   "intellij.featuresTrainer",
-  "intellij.searchEverywhereMl",
   "intellij.marketplaceMl",
   "intellij.toml",
   KotlinPluginBuilder.MAIN_KOTLIN_PLUGIN_MODULE,
@@ -64,8 +60,8 @@ val IDEA_BUNDLED_PLUGINS: PersistentList<String> = DEFAULT_BUNDLED_PLUGINS + seq
   "intellij.keymap.visualStudio",
   "intellij.keymap.netbeans",
   "intellij.performanceTesting",
-  "intellij.turboComplete",
   "intellij.compose.ide.plugin",
+  "intellij.findUsagesMl",
 )
 
 val CE_CLASS_VERSIONS: Map<String, String> = mapOf(
@@ -93,6 +89,14 @@ val CE_CLASS_VERSIONS: Map<String, String> = mapOf(
   "plugins/repository-search/lib/maven-model.jar" to "1.8"
 )
 
+/**
+ * Describes modules to be added to 'testFramework.jar' in the IDE distribution. This JAR was used to compile and run tests in external plugins.
+ * Since [#477](https://github.com/JetBrains/intellij-platform-gradle-plugin/issues/477) is implemented, it's possible to take test framework JARs from Maven repository,
+ * not from the IDE distribution.
+ * So this JAR is kept for compatibility only, **please do not add new modules here**.
+ * To publish a new test framework module, register it in [MavenArtifactsProperties.additionalModules] for the corresponding IDEs instead.
+ */
+@ApiStatus.Obsolete
 val TEST_FRAMEWORK_LAYOUT_CUSTOMIZER: (PlatformLayout, BuildContext) -> Unit = { layout, _ ->
   for (name in listOf(
     "intellij.platform.testFramework.common",

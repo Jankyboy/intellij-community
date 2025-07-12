@@ -2,9 +2,11 @@ KaScriptModule:
   description: Script build.gradle.kts
   targetPlatform: JVM (1.8)
   regularDependencies:
+    KaLibraryModule(.gradle/caches/8.11/dependencies-accessors/932b97c9e0ae61a950d0c442ab66fbe219f5f218/classes, scriptDependency)
+    KaLibraryModule(.gradle/caches/8.11/kotlin-dsl/accessors/67e0e34578eb78fe1de6071a11242124/classes, scriptDependency)
+    KaLibraryModule(.gradle/caches/8.11/kotlin-dsl/accessors/713d72c97915090755fbad209f3188cd-PS/classes, scriptDependency)
     KaLibraryModule(SDK)
     KaLibraryModule(annotations-13.0.jar, scriptDependency)
-    KaLibraryModule(dependencies-accessors/932b97c9e0ae61a950d0c442ab66fbe219f5f218/classes, scriptDependency)
     KaLibraryModule(gradle-api-8.11.jar, scriptDependency)
     KaLibraryModule(gradle-base-services-8.11.jar, scriptDependency)
     KaLibraryModule(gradle-base-services-groovy-8.11.jar, scriptDependency)
@@ -38,8 +40,6 @@ KaScriptModule:
     KaLibraryModule(kotlin-compiler-runner-2.0.20.jar, scriptDependency)
     KaLibraryModule(kotlin-daemon-client-2.0.20.jar, scriptDependency)
     KaLibraryModule(kotlin-daemon-embeddable-2.0.20.jar, scriptDependency)
-    KaLibraryModule(kotlin-dsl/accessors/67e0e34578eb78fe1de6071a11242124/classes, scriptDependency)
-    KaLibraryModule(kotlin-dsl/accessors/713d72c97915090755fbad209f3188cd-PS/classes, scriptDependency)
     KaLibraryModule(kotlin-gradle-plugin-2.0.20-gradle85.jar, scriptDependency)
     KaLibraryModule(kotlin-gradle-plugin-annotations-2.0.20.jar, scriptDependency)
     KaLibraryModule(kotlin-gradle-plugin-api-2.0.20-gradle85.jar, scriptDependency)
@@ -57,15 +57,56 @@ KaScriptModule:
     KaLibraryModule(kotlin-util-klib-2.0.20.jar, scriptDependency)
     KaLibraryModule(kotlinx-coroutines-core-jvm-1.6.4.jar, scriptDependency)
     KaLibraryModule(trove4j-1.0.20200330.jar, scriptDependency)
+    KaSourceModule(GradleKotlinFixture, production)
+    KaSourceModule(GradleKotlinFixture, test)
+  friendDependencies:
+    KaSourceModule(GradleKotlinFixture, production)
+  dependsOnDependencies:
+    <empty>
+
+KaSourceModule:
+  description: Sources of GradleKotlinFixture
+  targetPlatform: JVM (1.8)
+  name: GradleKotlinFixture
+  sourceModuleKind: PRODUCTION
+  stableModuleName: <GradleKotlinFixture>
+  regularDependencies:
+    KaLibraryModule(SDK)
   friendDependencies:
     <empty>
   dependsOnDependencies:
     <empty>
 
 KaLibraryModule:
-  description: Library annotations-13.0.jar
+  description: SDK
   targetPlatform: JVM (1.8)
-  libraryName: annotations-13.0.jar
+  libraryName: SDK
+  isSdk: true
+  regularDependencies:
+    <empty>
+  friendDependencies:
+    <empty>
+  dependsOnDependencies:
+    <empty>
+
+KaSourceModule:
+  description: Sources of GradleKotlinFixture
+  targetPlatform: JVM (1.8)
+  name: GradleKotlinFixture
+  sourceModuleKind: TEST
+  stableModuleName: <GradleKotlinFixture>
+  regularDependencies:
+    KaLibraryModule(SDK)
+    KaSourceModule(GradleKotlinFixture, production)
+  friendDependencies:
+    KaSourceModule(GradleKotlinFixture, production)
+  dependsOnDependencies:
+    <empty>
+
+KaLibraryModule:
+  description: Library .gradle/caches/8.11/dependencies-accessors/932b97c9e0ae61a950d0c442ab66fbe219f5f218/classes
+  targetPlatform: JVM (1.8)
+  libraryName: .gradle/caches/8.11/dependencies-accessors/932b97c9e0ae61a950d0c442ab66fbe219f5f218/classes
   isSdk: false
   regularDependencies:
     <empty>
@@ -75,9 +116,33 @@ KaLibraryModule:
     <empty>
 
 KaLibraryModule:
-  description: Library dependencies-accessors/932b97c9e0ae61a950d0c442ab66fbe219f5f218/classes
+  description: Library .gradle/caches/8.11/kotlin-dsl/accessors/67e0e34578eb78fe1de6071a11242124/classes
   targetPlatform: JVM (1.8)
-  libraryName: dependencies-accessors/932b97c9e0ae61a950d0c442ab66fbe219f5f218/classes
+  libraryName: .gradle/caches/8.11/kotlin-dsl/accessors/67e0e34578eb78fe1de6071a11242124/classes
+  isSdk: false
+  regularDependencies:
+    <empty>
+  friendDependencies:
+    <empty>
+  dependsOnDependencies:
+    <empty>
+
+KaLibraryModule:
+  description: Library .gradle/caches/8.11/kotlin-dsl/accessors/713d72c97915090755fbad209f3188cd-PS/classes
+  targetPlatform: JVM (1.8)
+  libraryName: .gradle/caches/8.11/kotlin-dsl/accessors/713d72c97915090755fbad209f3188cd-PS/classes
+  isSdk: false
+  regularDependencies:
+    <empty>
+  friendDependencies:
+    <empty>
+  dependsOnDependencies:
+    <empty>
+
+KaLibraryModule:
+  description: Library annotations-13.0.jar
+  targetPlatform: JVM (1.8)
+  libraryName: annotations-13.0.jar
   isSdk: false
   regularDependencies:
     <empty>
@@ -483,30 +548,6 @@ KaLibraryModule:
     <empty>
 
 KaLibraryModule:
-  description: Library kotlin-dsl/accessors/67e0e34578eb78fe1de6071a11242124/classes
-  targetPlatform: JVM (1.8)
-  libraryName: kotlin-dsl/accessors/67e0e34578eb78fe1de6071a11242124/classes
-  isSdk: false
-  regularDependencies:
-    <empty>
-  friendDependencies:
-    <empty>
-  dependsOnDependencies:
-    <empty>
-
-KaLibraryModule:
-  description: Library kotlin-dsl/accessors/713d72c97915090755fbad209f3188cd-PS/classes
-  targetPlatform: JVM (1.8)
-  libraryName: kotlin-dsl/accessors/713d72c97915090755fbad209f3188cd-PS/classes
-  isSdk: false
-  regularDependencies:
-    <empty>
-  friendDependencies:
-    <empty>
-  dependsOnDependencies:
-    <empty>
-
-KaLibraryModule:
   description: Library kotlin-gradle-plugin-2.0.20-gradle85.jar
   targetPlatform: JVM (1.8)
   libraryName: kotlin-gradle-plugin-2.0.20-gradle85.jar
@@ -710,22 +751,11 @@ KaLibraryModule:
   dependsOnDependencies:
     <empty>
 
-KaLibraryModule:
-  description: SDK
-  targetPlatform: JVM (1.8)
-  libraryName: SDK
-  isSdk: true
-  regularDependencies:
-    <empty>
-  friendDependencies:
-    <empty>
-  dependsOnDependencies:
-    <empty>
-
 KaScriptModule:
   description: Script settings.gradle.kts
   targetPlatform: JVM (1.8)
   regularDependencies:
+    KaLibraryModule(.gradle/caches/8.11/kotlin-dsl/accessors/045fae15c156631da085875c7a614413/classes, scriptDependency)
     KaLibraryModule(SDK)
     KaLibraryModule(gradle-api-8.11.jar, scriptDependency)
     KaLibraryModule(gradle-base-services-8.11.jar, scriptDependency)
@@ -751,18 +781,19 @@ KaScriptModule:
     KaLibraryModule(groovy-test-3.0.22.jar, scriptDependency)
     KaLibraryModule(groovy-xml-3.0.22.jar, scriptDependency)
     KaLibraryModule(javaparser-core-3.17.0.jar, scriptDependency)
-    KaLibraryModule(kotlin-dsl/accessors/045fae15c156631da085875c7a614413/classes, scriptDependency)
     KaLibraryModule(kotlin-reflect-2.0.20.jar, scriptDependency)
     KaLibraryModule(kotlin-stdlib dependencies, scriptDependency)
+    KaSourceModule(GradleKotlinFixture, production)
+    KaSourceModule(GradleKotlinFixture, test)
   friendDependencies:
-    <empty>
+    KaSourceModule(GradleKotlinFixture, production)
   dependsOnDependencies:
     <empty>
 
 KaLibraryModule:
-  description: Library kotlin-dsl/accessors/045fae15c156631da085875c7a614413/classes
+  description: Library .gradle/caches/8.11/kotlin-dsl/accessors/045fae15c156631da085875c7a614413/classes
   targetPlatform: JVM (1.8)
-  libraryName: kotlin-dsl/accessors/045fae15c156631da085875c7a614413/classes
+  libraryName: .gradle/caches/8.11/kotlin-dsl/accessors/045fae15c156631da085875c7a614413/classes
   isSdk: false
   regularDependencies:
     <empty>

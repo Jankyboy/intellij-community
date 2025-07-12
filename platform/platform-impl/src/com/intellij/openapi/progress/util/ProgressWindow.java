@@ -5,6 +5,7 @@ import com.intellij.ide.IdeEventQueue;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.InstantShutdown;
+import com.intellij.openapi.application.UiDispatcherKind;
 import com.intellij.openapi.application.ex.ApplicationEx;
 import com.intellij.openapi.application.ex.ApplicationManagerEx;
 import com.intellij.openapi.application.impl.LaterInvocator;
@@ -179,7 +180,9 @@ public class ProgressWindow extends ProgressIndicatorBase implements BlockingPro
     // executed in a small amount of time. Problem: UI blinks and looks ugly if we show progress dialog that disappears shortly
     // for each of them. The solution is to postpone the tasks of showing progress dialog. Hence, it will not be shown at all
     // if the task is already finished when the time comes.
-    EdtScheduler.getInstance().schedule(delayInMillis, getModalityState(), () -> {
+
+    // Modal progresses must run on EDT without write-intent lock, hence we pass RELAX dispatcher
+    EdtScheduler.getInstance().schedule(delayInMillis, getModalityState(), UiDispatcherKind.RELAX, () -> {
       if (isRunning()) {
         showDialog();
       }
@@ -451,5 +454,28 @@ public class ProgressWindow extends ProgressIndicatorBase implements BlockingPro
 
     @Override
     public void processFinish() { }
+  }
+
+  private static class WindowState extends State {
+    private final String myTitle;
+    protected WindowState(String title, @NotNull State delegate) {
+      super(delegate);
+      myTitle = title;
+    }
+  }
+
+  @Override
+  @ApiStatus.Internal
+  protected @NotNull State getState() {
+    return new WindowState(myTitle, super.getState());
+  }
+
+  @Override
+  @ApiStatus.Internal
+  protected void restoreFrom(@NotNull State state) {
+    super.restoreFrom(state);
+    if (state instanceof WindowState w && w.myTitle != null) {
+      setTitle(w.myTitle);
+    }
   }
 }

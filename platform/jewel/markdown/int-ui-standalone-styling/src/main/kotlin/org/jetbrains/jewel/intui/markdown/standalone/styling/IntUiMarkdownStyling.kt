@@ -36,10 +36,10 @@ import org.jetbrains.jewel.markdown.rendering.MarkdownStyling.HtmlBlock
 import org.jetbrains.jewel.markdown.rendering.MarkdownStyling.Image
 import org.jetbrains.jewel.markdown.rendering.MarkdownStyling.List
 import org.jetbrains.jewel.markdown.rendering.MarkdownStyling.List.Ordered
+import org.jetbrains.jewel.markdown.rendering.MarkdownStyling.List.Ordered.NumberFormatStyles.NumberFormatStyle
 import org.jetbrains.jewel.markdown.rendering.MarkdownStyling.List.Unordered
 import org.jetbrains.jewel.markdown.rendering.MarkdownStyling.Paragraph
 import org.jetbrains.jewel.markdown.rendering.MarkdownStyling.ThematicBreak
-import org.jetbrains.jewel.ui.component.Typography
 
 @ExperimentalJewelApi
 public fun MarkdownStyling.Companion.light(
@@ -420,12 +420,18 @@ public fun List.Companion.dark(
 @ExperimentalJewelApi
 public fun Ordered.Companion.light(
     numberStyle: TextStyle = defaultTextStyle,
-    numberContentGap: Dp = 8.dp,
+    numberContentGap: Dp = 4.dp,
     numberMinWidth: Dp = 16.dp,
     numberTextAlign: TextAlign = TextAlign.End,
     itemVerticalSpacing: Dp = 16.dp,
     itemVerticalSpacingTight: Dp = 4.dp,
-    padding: PaddingValues = PaddingValues(start = 16.dp),
+    padding: PaddingValues = PaddingValues(start = 6.dp),
+    numberFormatStyles: Ordered.NumberFormatStyles =
+        Ordered.NumberFormatStyles(
+            firstLevel = NumberFormatStyle.Decimal,
+            secondLevel = NumberFormatStyle.Roman,
+            thirdLevel = NumberFormatStyle.Alphabetical,
+        ),
 ): Ordered =
     Ordered(
         numberStyle,
@@ -435,17 +441,24 @@ public fun Ordered.Companion.light(
         itemVerticalSpacing,
         itemVerticalSpacingTight,
         padding,
+        numberFormatStyles,
     )
 
 @ExperimentalJewelApi
 public fun Ordered.Companion.dark(
     numberStyle: TextStyle = defaultTextStyle,
-    numberContentGap: Dp = 8.dp,
+    numberContentGap: Dp = 4.dp,
     numberMinWidth: Dp = 16.dp,
     numberTextAlign: TextAlign = TextAlign.End,
     itemVerticalSpacing: Dp = 16.dp,
     itemVerticalSpacingTight: Dp = 4.dp,
-    padding: PaddingValues = PaddingValues(start = 16.dp),
+    padding: PaddingValues = PaddingValues(start = 6.dp),
+    numberFormatStyles: Ordered.NumberFormatStyles =
+        Ordered.NumberFormatStyles(
+            firstLevel = NumberFormatStyle.Decimal,
+            secondLevel = NumberFormatStyle.Roman,
+            thirdLevel = NumberFormatStyle.Alphabetical,
+        ),
 ): Ordered =
     Ordered(
         numberStyle,
@@ -455,27 +468,54 @@ public fun Ordered.Companion.dark(
         itemVerticalSpacing,
         itemVerticalSpacingTight,
         padding,
+        numberFormatStyles,
     )
 
 @ExperimentalJewelApi
 public fun Unordered.Companion.light(
     bullet: Char? = '•',
     bulletStyle: TextStyle = defaultTextStyle.copy(fontWeight = FontWeight.Black),
-    bulletContentGap: Dp = 16.dp,
+    bulletContentGap: Dp = 4.dp,
     itemVerticalSpacing: Dp = 16.dp,
     itemVerticalSpacingTight: Dp = 4.dp,
-    padding: PaddingValues = PaddingValues(start = 16.dp),
-): Unordered = Unordered(bullet, bulletStyle, bulletContentGap, itemVerticalSpacing, itemVerticalSpacingTight, padding)
+    padding: PaddingValues = PaddingValues(start = 6.dp),
+    markerMinWidth: Dp = 16.dp,
+    bulletCharStyles: Unordered.BulletCharStyles? =
+        Unordered.BulletCharStyles(firstLevel = '•', secondLevel = '◦', thirdLevel = '▪'),
+): Unordered =
+    Unordered(
+        bullet,
+        bulletStyle,
+        bulletContentGap,
+        itemVerticalSpacing,
+        itemVerticalSpacingTight,
+        padding,
+        markerMinWidth,
+        bulletCharStyles,
+    )
 
 @ExperimentalJewelApi
 public fun Unordered.Companion.dark(
     bullet: Char? = '•',
     bulletStyle: TextStyle = defaultTextStyle.copy(fontWeight = FontWeight.Black),
-    bulletContentGap: Dp = 16.dp,
+    bulletContentGap: Dp = 4.dp,
     itemVerticalSpacing: Dp = 16.dp,
     itemVerticalSpacingTight: Dp = 4.dp,
-    padding: PaddingValues = PaddingValues(start = 16.dp),
-): Unordered = Unordered(bullet, bulletStyle, bulletContentGap, itemVerticalSpacing, itemVerticalSpacingTight, padding)
+    padding: PaddingValues = PaddingValues(start = 6.dp),
+    markerMinWidth: Dp = 16.dp,
+    bulletCharStyles: Unordered.BulletCharStyles? =
+        Unordered.BulletCharStyles(firstLevel = '•', secondLevel = '◦', thirdLevel = '▪'),
+): Unordered =
+    Unordered(
+        bullet,
+        bulletStyle,
+        bulletContentGap,
+        itemVerticalSpacing,
+        itemVerticalSpacingTight,
+        padding,
+        markerMinWidth,
+        bulletCharStyles,
+    )
 
 @ExperimentalJewelApi
 public fun Code.Companion.light(
@@ -684,6 +724,7 @@ public fun InlinesStyling.Companion.light(
     emphasis: SpanStyle = textStyle.copy(fontStyle = FontStyle.Italic).toSpanStyle(),
     strongEmphasis: SpanStyle = textStyle.copy(fontWeight = FontWeight.Bold).toSpanStyle(),
     inlineHtml: SpanStyle = textStyle.toSpanStyle(),
+    // Detekt suppression — this is for API stability
     @Suppress("UnusedParameter") renderInlineHtml: Boolean = true,
 ): InlinesStyling =
     InlinesStyling(
@@ -764,6 +805,7 @@ public fun InlinesStyling.Companion.dark(
     emphasis: SpanStyle = textStyle.copy(fontStyle = FontStyle.Italic).toSpanStyle(),
     strongEmphasis: SpanStyle = textStyle.copy(fontWeight = FontWeight.Bold).toSpanStyle(),
     inlineHtml: SpanStyle = textStyle.toSpanStyle(),
+    // Detekt suppression — this is for API stability
     @Suppress("UnusedParameter") renderInlineHtml: Boolean = true,
 ): InlinesStyling =
     InlinesStyling(
@@ -789,18 +831,10 @@ private val blockContentColorDark = Color(0xFFBCBEC4)
 private val defaultTextSize = 13.sp
 
 private val defaultTextStyle
-    get() =
-        JewelTheme.createDefaultTextStyle(
-            fontSize = defaultTextSize,
-            lineHeight = defaultTextSize * Typography.DefaultLineHeightMultiplier,
-        )
+    get() = JewelTheme.createDefaultTextStyle(fontSize = defaultTextSize)
 
 private val defaultEditorTextStyle
-    get() =
-        JewelTheme.createEditorTextStyle(
-            fontSize = defaultTextSize,
-            lineHeight = defaultTextSize * Typography.EditorLineHeightMultiplier,
-        )
+    get() = JewelTheme.createEditorTextStyle(fontSize = defaultTextSize)
 
 private val inlineCodeBackgroundColorLight = Color(red = 212, green = 222, blue = 231, alpha = 255 / 4)
 private val inlineCodeBackgroundColorDark = Color(red = 212, green = 222, blue = 231, alpha = 25)

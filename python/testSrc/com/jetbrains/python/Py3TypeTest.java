@@ -2,9 +2,7 @@
 package com.jetbrains.python;
 
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Ref;
 import com.intellij.psi.PsiFile;
-import com.jetbrains.python.codeInsight.typing.PyTypingTypeProvider;
 import com.jetbrains.python.fixtures.PyTestCase;
 import com.jetbrains.python.inspections.PyTypeCheckerInspectionTest;
 import com.jetbrains.python.psi.LanguageLevel;
@@ -402,12 +400,12 @@ public class Py3TypeTest extends PyTestCase {
   }
 
   public void testOpenDefault() {
-    doTest("TextIOWrapper",
+    doTest("TextIOWrapper[_WrappedBuffer]",
            "expr = open('foo')\n");
   }
 
   public void testOpenText() {
-    doTest("TextIOWrapper",
+    doTest("TextIOWrapper[_WrappedBuffer]",
            "expr = open('foo', 'r')\n");
   }
 
@@ -417,7 +415,7 @@ public class Py3TypeTest extends PyTestCase {
   }
 
   public void testIoOpenDefault() {
-    doTest("TextIOWrapper",
+    doTest("TextIOWrapper[_WrappedBuffer]",
            """
              import io
              expr = io.open('foo')
@@ -425,7 +423,7 @@ public class Py3TypeTest extends PyTestCase {
   }
 
   public void testIoOpenText() {
-    doTest("TextIOWrapper",
+    doTest("TextIOWrapper[_WrappedBuffer]",
            """
              import io
              expr = io.open('foo', 'r')
@@ -950,6 +948,15 @@ public class Py3TypeTest extends PyTestCase {
              def f() -> Callable[[int, str], int]:
                  pass
              expr = f()""");
+  }
+
+  // PY-81606
+  public void testCallable() {
+    doTest("(x: int, /, s: str, *, k: bytes) -> None",
+           """
+             def func(x: int, /, s: str, *, k: bytes) -> None:
+                 pass
+             expr = func""");
   }
 
   // PY-24445
@@ -3848,6 +3855,40 @@ public class Py3TypeTest extends PyTestCase {
                          global s
                          s = 1
              """);
+  }
+
+  // PY-75679
+  public void testSelfSubstitutedWithGenericQualifierType() {
+    doTest("Derived[int]", """
+      from typing import Self, Generic, TypeVar
+      T = TypeVar('T')
+      class Base1(Generic[T]):
+          def foo(self) -> Self:
+              return self
+      
+      class Base2:
+          def bar(self) -> Self:
+              return self
+      
+      class Derived(Base1[T], Base2): ...
+
+      d = Derived[int]()
+      expr = d.bar().foo().bar().foo()
+      """);
+  }
+
+  // PY-75679
+  public void testSelfSubstitutedWithQualifierType() {
+    doTest("B", """
+      from typing import Self
+      
+      class A[T]:
+          def f(self) -> Self: ...
+      
+      class B(A[int]): ...
+      
+      expr = B().f()
+      """);
   }
 
   private void doTest(final String expectedType, final String text) {

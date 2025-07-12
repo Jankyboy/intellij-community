@@ -4,7 +4,7 @@ package com.jetbrains.python.sdk.conda.execution
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.platform.eel.isWindows
 import com.intellij.platform.eel.provider.getEelDescriptor
-import com.intellij.util.EnvReader
+import com.intellij.util.ShellEnvironmentReader
 import com.jetbrains.python.PyBundle
 import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.packaging.common.PythonOutdatedPackage
@@ -33,7 +33,7 @@ object CondaExecutor {
   }
 
   suspend fun createFileEnv(condaPath: Path, environmentYaml: Path): PyResult<Unit> {
-    val args = listOf("env", "create", "-y", "-f", environmentYaml.pathString)
+    val args = listOf("env", "create", "-f", environmentYaml.pathString)
     return runConda(condaPath, args, null).mapSuccess { }
   }
 
@@ -51,7 +51,7 @@ object CondaExecutor {
   }
 
   suspend fun exportEnvironmentFile(condaPath: Path, envIdentity: PyCondaEnvIdentity): PyResult<String> {
-    return runConda(condaPath, listOf("export") + listOf("--from-history"), envIdentity)
+    return runConda(condaPath, listOf("env", "export") + listOf("--no-builds"), envIdentity)
   }
 
   suspend fun listPackages(condaPath: Path, envIdentity: PyCondaEnvIdentity): PyResult<List<PythonPackage>> {
@@ -113,7 +113,8 @@ object CondaExecutor {
       return PyResult.success(emptyMap())
     }
     try {
-      val envs = EnvReader().readBatEnv(activateBat, emptyList())
+      val command = ShellEnvironmentReader.winShellCommand(activateBat, null)
+      val envs = ShellEnvironmentReader.readEnvironment(command, 0).first
       val transformed = transformEnvVars(envs, condaPath)
       return PyResult.success(transformed)
     }

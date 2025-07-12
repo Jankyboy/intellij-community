@@ -2797,7 +2797,8 @@ public final class ContainerUtil {
    * @return read-only set consisting of not null results of {@code mapper.fun} for each element in {@code collection}
    */
   @Contract(pure = true)
-  public static @Unmodifiable @NotNull <T, V> Set<@NotNull V> map2SetNotNull(@NotNull Collection<? extends T> collection, @NotNull Function<? super T, ? extends V> mapper) {
+  public static @Unmodifiable @NotNull <T, V> Set<@NotNull V> map2SetNotNull(@NotNull Collection<? extends T> collection,
+                                                                             @NotNull Function<? super T, ? extends @Nullable V> mapper) {
     if (collection.isEmpty()) return Collections.emptySet();
     Set <V> set = new HashSet<>(collection.size());
     for (T t : collection) {
@@ -2843,6 +2844,7 @@ public final class ContainerUtil {
 
   /**
    * @return read-only list consisting of elements in the input collection
+   * TODO replace with {@link List#copyOf(Collection)} when the language level allow
    */
   @Contract(pure = true)
   public static @Unmodifiable @NotNull <T> List<T> copyList(@NotNull List<? extends T> list) {

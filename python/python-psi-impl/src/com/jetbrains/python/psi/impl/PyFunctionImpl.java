@@ -223,13 +223,6 @@ public class PyFunctionImpl extends PyBaseElementImpl<PyFunctionStub> implements
     if (PyTypeChecker.hasGenerics(type, context)) {
       final var substitutions = PyTypeChecker.unifyGenericCall(receiver, parameters, context);
       if (substitutions != null) {
-        PyClass containingClass = getContainingClass();
-        if (containingClass != null && type instanceof PySelfType) {
-          PyType genericType = PyTypeChecker.findGenericDefinitionType(containingClass, context);
-          if (genericType != null) {
-            type = genericType;
-          }
-        }
         final var substitutionsWithUnresolvedReturnGenerics =
           PyTypeChecker.getSubstitutionsWithUnresolvedReturnGenerics(getParameters(context), type, substitutions, context);
         type = PyTypeChecker.substitute(type, substitutionsWithUnresolvedReturnGenerics, context);
@@ -363,7 +356,7 @@ public class PyFunctionImpl extends PyBaseElementImpl<PyFunctionStub> implements
         hasReturn = true;
         final PyExpression expr = returnStatement.getExpression();
         types.add(expr != null ? context.getType(expr) : PyBuiltinCache.getInstance(this).getNoneType());
-      } 
+      }
       else {
         types.add(PyBuiltinCache.getInstance(this).getNoneType());
       }

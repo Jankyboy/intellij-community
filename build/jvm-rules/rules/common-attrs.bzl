@@ -15,6 +15,7 @@ load(
     "//:rules/impl/kotlinc-options.bzl",
     "KotlincOptions",
 )
+load("//:rules/impl/transitions.bzl", "scrubbed_host_platform_transition")
 
 visibility("private")
 
@@ -32,6 +33,10 @@ def add_dicts(*dictionaries):
 _implicit_deps = {
     "_java_toolchain": attr.label(
         default = Label("@bazel_tools//tools/jdk:current_java_toolchain"),
+    ),
+    "_tool_java_runtime": attr.label(
+        default = Label("@bazel_tools//tools/jdk:current_java_runtime"),
+        cfg = "exec",
     ),
 }
 
@@ -93,9 +98,11 @@ common_attr = add_dicts(
         ),
         "_jvm_builder": attr.label(
             default = "//:jvm-builder",
-            executable = True,
-            allow_files = True,
-            cfg = "exec",
+            allow_single_file = True,
+            cfg = scrubbed_host_platform_transition,
+        ),
+        "_jvm_builder_jvm_flags": attr.label(
+            default = "//:jvm-builder-jvm_flags",
         ),
         "_reduced_classpath": attr.bool(default = False),
         "_trace": attr.label(default = "//:trace"),

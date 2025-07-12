@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.hints.presentation
 
 import com.intellij.ide.ui.AntialiasingType
@@ -12,7 +12,6 @@ import com.intellij.openapi.editor.impl.EditorImpl
 import com.intellij.openapi.editor.impl.FontInfo
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.ui.StartupUiUtil
-import com.intellij.util.ui.getFontWithFallback
 import org.jetbrains.annotations.ApiStatus
 import java.awt.Font
 import java.awt.FontMetrics
@@ -39,6 +38,19 @@ class InlayTextMetricsStorage(val editor: Editor) {
 
   @RequiresEdt
   fun getCurrentStamp(): InlayTextMetricsStamp {
+    val lastStamp = lastStamp
+    if (lastStamp == null
+        || normalTextSize != lastStamp.editorFontSize2D
+        || UISettings.getInstance().ideScale != lastStamp.ideScale
+        || getFontFamilyName() != lastStamp.familyName
+        || getFontRenderContext(editor.component) != lastStamp.fontRenderContext) {
+      return doGetCurrentStamp()
+    }
+    return lastStamp
+  }
+
+  @RequiresEdt
+  private fun doGetCurrentStamp(): InlayTextMetricsStamp {
     return InlayTextMetricsStamp(
       // smallTextSize is derived from normalTextSize, so it can serve as a stamp for both metrics
       normalTextSize,
@@ -51,7 +63,8 @@ class InlayTextMetricsStorage(val editor: Editor) {
   @RequiresEdt
   fun getFontMetrics(small: Boolean): InlayTextMetrics {
     val currentStamp = getCurrentStamp()
-    if (lastStamp != currentStamp) {
+    // a new stamp is only ever constructed if a change is detected
+    if (lastStamp !== currentStamp) {
       lastStamp = currentStamp
       smallTextMetrics = null
       normalTextMetrics = null
@@ -90,8 +103,7 @@ class InlayTextMetricsStorage(val editor: Editor) {
 }
 
 @ApiStatus.Internal
-@ConsistentCopyVisibility
-data class InlayTextMetricsStamp internal constructor(
+class InlayTextMetricsStamp internal constructor(
   val editorFontSize2D: Float,
   val familyName: String,
   val ideScale: Float,
@@ -113,7 +125,7 @@ class InlayTextMetrics(
         editorFont.deriveFont(fontType, size)
       } else {
         val familyName = StartupUiUtil.labelFont.family
-        getFontWithFallback(familyName, fontType, size)
+        StartupUiUtil.getFontWithFallback(familyName, fontType, size)
       }
       val metrics = FontInfo.getFontMetrics(font, context)
       // We assume this will be a better approximation to a real line height for a given font

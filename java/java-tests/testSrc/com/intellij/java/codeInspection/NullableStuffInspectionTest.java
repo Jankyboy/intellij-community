@@ -449,12 +449,10 @@ public class NullableStuffInspectionTest extends LightJavaCodeInsightFixtureTest
   }
 
   public void testParameterUnderDefaultNotNull() {
-    DataFlowInspectionTestCase.addJetBrainsNotNullByDefault(myFixture);
     doTest();
   }
   
   public void testRedundantNotNull() {
-    DataFlowInspectionTestCase.addJetBrainsNotNullByDefault(myFixture);
     doTest();
   }
   
@@ -480,6 +478,12 @@ public class NullableStuffInspectionTest extends LightJavaCodeInsightFixtureTest
   public void testIncompatibleInstantiation() {
     addJSpecifyNullMarked(myFixture);
     addJavaxNullabilityAnnotations(myFixture);
+    setupTypeUseAnnotations("org.jspecify.annotations", myFixture);
+    doTest();
+  }
+  
+  public void testNullableExtendsNullable() {
+    addJSpecifyNullMarked(myFixture);
     setupTypeUseAnnotations("org.jspecify.annotations", myFixture);
     doTest();
   }

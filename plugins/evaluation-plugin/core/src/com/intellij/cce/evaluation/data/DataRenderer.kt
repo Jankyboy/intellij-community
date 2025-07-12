@@ -27,8 +27,8 @@ sealed interface DataRenderer<in T> {
     override val serialName: String = "inline_int"
   }
 
-  data object ListInt : DataRenderer<List<Int>> {
-    override val serialName: String = "list_int"
+  data object NamedRanges : DataRenderer<List<NamedRange>> {
+    override val serialName: String = "named_ranges"
   }
 
   data object ClickableLink : DataRenderer<String> {
@@ -67,7 +67,7 @@ sealed interface DataRenderer<in T> {
         "inline_long" -> InlineLong
         "inline_double" -> InlineDouble
         "inline_int" -> InlineInt
-        "list_int" -> ListInt
+        "named_ranges" -> NamedRanges
         "clickable_link" -> ClickableLink
         "text" -> context?.deserialize(json, Text::class.java)
         "lines" -> Lines
@@ -94,6 +94,23 @@ interface TextUpdate {
   private class Impl(override val originalText: String, override val updatedText: String) : TextUpdate
 }
 
-data class FileUpdate(val filePath: String, override val originalText: String, override val updatedText: String) : TextUpdate, HasDescription {
+data class FileUpdate(
+  val filePath: String,
+  val originalNonSanitizedText: String,
+  override val updatedText: String
+) : TextUpdate, HasDescription {
+  override val originalText: String = originalNonSanitizedText.replace("\r\n", "\n")
+
   override val descriptionText: String = filePath
+
+  val isRemoved: Boolean = updatedText.isEmpty()
 }
+
+fun sanitizeText(text: String): String = text.replace("\r\n", "\n")
+
+interface Range {
+  val start: Int
+  val end: Int
+}
+
+data class NamedRange(override val start: Int, override val end: Int, val text: String, val negativeExample: Boolean = false) : Range

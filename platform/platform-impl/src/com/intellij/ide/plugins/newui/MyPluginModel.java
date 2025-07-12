@@ -92,6 +92,7 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
   public MyPluginModel(@Nullable Project project) {
     super(project);
     Window window = ProjectUtil.getActiveFrameOrWelcomeScreen();
+    myCoroutineScope = ApplicationManager.getApplication().getService(FrontendRpcCoroutineContext.class).getCoroutineScope();
     StatusBarEx statusBar = getStatusBar(window);
     myStatusBar = statusBar != null || window == null ?
                   statusBar :
@@ -117,40 +118,26 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
   }
 
   public boolean isModified() {
-    return needRestart || !myInstallingInfos.isEmpty() || UiPluginManager.getInstance().isModified(sessionId.toString());
+    return needRestart || !myInstallingInfos.isEmpty() || UiPluginManager.getInstance().isModified(mySessionId.toString());
   }
 
   /**
    * @return true if changes were applied without a restart
    */
   public boolean apply(@Nullable JComponent parent) throws ConfigurationException {
-    ApplyPluginsStateResult applyResult = UiPluginManager.getInstance().applySession(sessionId.toString(), parent, getProject());
+    ApplyPluginsStateResult applyResult = UiPluginManager.getInstance().applySession(mySessionId.toString(), parent, getProject());
     String error = applyResult.getError();
     if (error != null) {
       throw new ConfigurationException(XmlStringUtil.wrapInHtml(error)).withHtmlMessage();
     }
-    applyResult.getPluginsToEnable().forEach(id -> setEnabled(id, PluginEnabledState.ENABLED));
+    applyResult.getPluginsToEnable().forEach(id -> super.setEnabled(id, PluginEnabledState.ENABLED));
     myUninstalled.clear();
     updateButtons();
     return !applyResult.getNeedRestart();
   }
 
-  public void applyAsync(@Nullable JComponent parent, Consumer<Boolean> callback) throws ConfigurationException {
-    String error = UiPluginManager.getInstance().getApplSessionError(sessionId.toString());
-    if (error != null) {
-      throw new ConfigurationException(XmlStringUtil.wrapInHtml(error)).withHtmlMessage();
-    }
-    PluginModelAsyncOperationsExecutor.INSTANCE.applySessionResult(myCoroutineScope, sessionId.toString(), getProject(), parent, res -> {
-      res.getPluginsToEnable().forEach(id -> setEnabled(id, PluginEnabledState.ENABLED));
-      myUninstalled.clear();
-      updateButtons();
-      callback.accept(!res.getNeedRestart());
-      return null;
-    });
-  }
-
   public void clear(@Nullable JComponent parentComponent) {
-    UiPluginManager.getInstance().resetSession(sessionId.toString(), false, parentComponent, newState -> {
+    UiPluginManager.getInstance().resetSession(mySessionId.toString(), false, parentComponent, newState -> {
       applyChangedStates(newState);
       updateAfterEnableDisable();
       return null;
@@ -158,25 +145,20 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
   }
 
   public void cancel(@Nullable JComponent parentComponent, boolean removeSession) {
-    UiPluginManager.getInstance().resetSession(sessionId.toString(), removeSession, parentComponent, newState -> {
+    UiPluginManager.getInstance().resetSession(mySessionId.toString(), removeSession, parentComponent, newState -> {
       applyChangedStates(newState);
       return null;
     });
   }
 
   public boolean isDisabledInDiff(@NotNull PluginId pluginId) {
-    return UiPluginManager.getInstance().isDisabledInDiff(sessionId.toString(), pluginId);
+    return UiPluginManager.getInstance().isDisabledInDiff(mySessionId.toString(), pluginId);
   }
 
   public void pluginInstalledFromDisk(@NotNull PluginInstallCallbackData callbackData) {
     IdeaPluginDescriptor descriptor = callbackData.getPluginDescriptor();
-    CheckErrorsResult errors = UiPluginManager.getInstance().getErrors(sessionId.toString(), descriptor.getPluginId());
+    CheckErrorsResult errors = UiPluginManager.getInstance().getErrors(mySessionId.toString(), descriptor.getPluginId());
     appendOrUpdateDescriptor(new PluginUiModelAdapter(descriptor), callbackData.getRestartNeeded(), getErrors(errors));
-    if (!callbackData.getRestartNeeded() && callbackData.getFile() != null && descriptor instanceof IdeaPluginDescriptorImpl) {
-      mySession.getDynamicPluginsToInstall().put(descriptor.getPluginId(),
-                                                 new PendingDynamicPluginInstall(callbackData.getFile(),
-                                                                                 (IdeaPluginDescriptorImpl)descriptor));
-    }
   }
 
   public void addComponent(@NotNull ListPluginComponent component) {
@@ -258,7 +240,7 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
   }
 
   public String getSessionId() {
-    return sessionId.toString();
+    return mySessionId.toString();
   }
 
   void installOrUpdatePlugin(@Nullable JComponent parentComponent,
@@ -304,7 +286,7 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
       }
       else if (controller.allowLoadUnloadSynchronously(descriptor.getPluginId())) {
         allowInstallWithoutRestart.set(controller.uninstallDynamicPlugin(parentComponent,
-                                                                         sessionId.toString(),
+                                                                         mySessionId.toString(),
                                                                          descriptor.getPluginId(),
                                                                          true));
       }
@@ -322,7 +304,7 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
         @Override
         public void run(@NotNull ProgressIndicator indicator) {
           if (uninstallPlugin.get()) {
-            controller.performUninstall(sessionId.toString(), descriptor.getPluginId());
+            controller.performUninstall(mySessionId.toString(), descriptor.getPluginId());
           }
           PluginUiModel pluginUiModel = loadDetails(actionDescriptor, indicator);
           if (pluginUiModel == null) {
@@ -331,7 +313,7 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
 
           List<IdeaPluginDescriptor> pluginsToInstall = List.of(pluginUiModel.getDescriptor());
           ApplicationManager.getApplication().invokeAndWait(() -> {
-            PluginManagerMain.suggestToEnableInstalledDependantPlugins(MyPluginModel.this, pluginsToInstall);
+            PluginManagerMain.suggestToEnableInstalledDependantPlugins(MyPluginModel.this, pluginsToInstall, updateDescriptor != null);
           }, modalityState);
 
 
@@ -340,7 +322,7 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
                                                          MyPluginModel.this,
                                                          !isUpdate);
           prepareToInstall(info);
-          InstallPluginRequest installPluginRequest = new InstallPluginRequest(sessionId.toString(),
+          InstallPluginRequest installPluginRequest = new InstallPluginRequest(mySessionId.toString(),
                                                                                descriptor.getPluginId(),
                                                                                List.of(PluginDto.fromModel(pluginUiModel)),
                                                                                allowInstallWithoutRestart.get(),
@@ -814,14 +796,14 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
   protected void setEnabled(@NotNull PluginId pluginId, @Nullable PluginEnabledState enabled) {
     super.setEnabled(pluginId, enabled);
     boolean isEnabled = enabled == null || enabled.isEnabled();
-    UiPluginManager.getInstance().setPluginStatus(sessionId.toString(), List.of(pluginId), isEnabled);
+    UiPluginManager.getInstance().setPluginStatus(mySessionId.toString(), List.of(pluginId), isEnabled);
   }
 
   public boolean setEnabledState(@NotNull Collection<? extends IdeaPluginDescriptor> descriptors,
                                  @NotNull PluginEnableDisableAction action) {
     List<PluginId> pluginIds = ContainerUtil.map(descriptors, it -> it.getPluginId());
     SetEnabledStateResult result =
-      UiPluginManager.getInstance().enablePlugins(sessionId.toString(), pluginIds, action.isEnable(), getProject());
+      UiPluginManager.getInstance().enablePlugins(mySessionId.toString(), pluginIds, action.isEnable(), getProject());
     if (result.getPluginNamesToSwitch().isEmpty()) {
       applyChangedStates(result.getChangedStates());
       updateEnabledStateInUi();
@@ -832,6 +814,23 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
     return true;
   }
 
+  public boolean setEnabledStateAsync(@NotNull Collection<? extends IdeaPluginDescriptor> descriptors,
+                                 @NotNull PluginEnableDisableAction action) {
+    List<PluginId> pluginIds = ContainerUtil.map(descriptors, it -> it.getPluginId());
+    PluginModelAsyncOperationsExecutor.INSTANCE.enablePlugins(myCoroutineScope, mySessionId.toString(), pluginIds, action.isEnable(),
+                                                              getProject(), result -> {
+        if (result.getPluginNamesToSwitch().isEmpty()) {
+          applyChangedStates(result.getChangedStates());
+          updateEnabledStateInUi();
+        }
+        else {
+          askToUpdateDependencies(action, result.getPluginNamesToSwitch(), result.getPluginsIdsToSwitch());
+        }
+        return null;
+      });
+    return true;
+  }
+
   private void askToUpdateDependencies(@NotNull PluginEnableDisableAction action,
                                        Set<String> pluginNames,
                                        Set<PluginId> pluginIds) {
@@ -839,7 +838,7 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
       return;
     }
     SetEnabledStateResult result =
-      UiPluginManager.getInstance().setEnableStateForDependencies(sessionId.toString(), pluginIds, action.isEnable());
+      UiPluginManager.getInstance().setEnableStateForDependencies(mySessionId.toString(), pluginIds, action.isEnable());
     if (!result.getChangedStates().isEmpty()) {
       applyChangedStates(result.getChangedStates());
       updateEnabledStateInUi();
@@ -897,7 +896,7 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
   }
 
   void enableRequiredPlugins(@NotNull IdeaPluginDescriptor descriptor) {
-    Set<PluginId> pluginsToEnable = UiPluginManager.getInstance().enableRequiredPlugins(sessionId.toString(), descriptor.getPluginId());
+    Set<PluginId> pluginsToEnable = UiPluginManager.getInstance().enableRequiredPlugins(mySessionId.toString(), descriptor.getPluginId());
     setStatesByIds(pluginsToEnable, true);
   }
 
@@ -1000,7 +999,7 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
     }
     try {
       PluginModelAsyncOperationsExecutor.INSTANCE
-        .performUninstall(scope, descriptor, sessionId.toString(), controller, (needRestartForUninstall, errorCheckResult) -> {
+        .performUninstall(scope, descriptor, mySessionId.toString(), controller, (needRestartForUninstall, errorCheckResult) -> {
           needRestart |= descriptor.isEnabled() && needRestartForUninstall;
           Map<PluginId, List<HtmlChunk>> errors = getErrors(errorCheckResult);
           if (myPluginManagerCustomizer != null) {
@@ -1070,7 +1069,7 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
     if (isDeleted(descriptor)) {
       return List.of();
     }
-    CheckErrorsResult response = UiPluginManager.getInstance().getErrors(sessionId.toString(), pluginId);
+    CheckErrorsResult response = UiPluginManager.getInstance().getErrors(mySessionId.toString(), pluginId);
     return getErrors(response);
   }
 
@@ -1101,7 +1100,7 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
 
   @Override
   protected void updatePluginDependencies(@Nullable Map<PluginId, IdeaPluginDescriptorImpl> pluginIdMap) {
-    Set<PluginId> pluginsToEnable = UiPluginManager.getInstance().updatePluginDependencies(sessionId.toString());
+    Set<PluginId> pluginsToEnable = UiPluginManager.getInstance().updatePluginDependencies(mySessionId.toString());
     setStatesByIds(pluginsToEnable, true);
   }
 

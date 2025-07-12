@@ -246,6 +246,9 @@ def _should_enable_line_events_for_code(frame, code, filename, info, will_be_sto
 
     plugin_manager = py_db.plugin
 
+    if info is None:
+        return False
+
     stop_frame = info.pydev_step_stop
     step_cmd = info.pydev_step_cmd
 
@@ -321,6 +324,9 @@ def _should_enable_line_events_for_code(frame, code, filename, info, will_be_sto
 
 
 def _clear_run_state(info):
+    if info is None:
+        return
+
     info.pydev_step_stop = None
     info.pydev_step_cmd = -1
     info.pydev_state = STATE_RUN
@@ -357,6 +363,9 @@ def _get_top_level_frame():
 
 def _stop_on_unhandled_exception(exc_info, py_db, thread):
     additional_info = _get_additional_info(thread)
+    if additional_info is None:
+        return
+
     if not additional_info.suspended_at_unhandled:
         additional_info.suspended_at_unhandled = True
         stop_on_unhandled_exception(py_db, thread, additional_info,
@@ -584,10 +593,10 @@ def py_start_callback(code, instruction_offset):
                     and frame is not info.pydev_step_stop):
                 if frame.f_back is info.pydev_step_stop:
                     _enable_return_tracing(code)
-            if (py_db.is_files_filter_enabled
+            if (py_db.is_filter_enabled
                     and py_db.is_ignored_by_filters(filename)):
                 return monitoring.DISABLE
-            if (py_db._is_libraries_filter_enabled
+            if (py_db.is_filter_libraries
                     and not py_db.in_project_scope(filename)):
                 return monitoring.DISABLE
             # We are stepping, and there is no reason to skip the frame
@@ -721,11 +730,11 @@ def py_line_callback(code, line_number):
                         return
             else:
                 if step_cmd != -1:
-                    if (py_db.is_files_filter_enabled
+                    if (py_db.is_filter_enabled
                             and py_db.is_ignored_by_filters(filename)):
                         # ignore files matching stepping filters
                         return monitoring.DISABLE
-                    if (py_db._is_libraries_filter_enabled
+                    if (py_db.is_filter_libraries
                             and not py_db.in_project_scope(filename)):
                         # ignore library files while stepping
                         return monitoring.DISABLE
@@ -853,7 +862,7 @@ def py_raise_callback(code, instruction_offset, exception):
         py_db = None
 
     if py_db is None:
-        return monitoring.DISABLE
+        return
 
     try:
         try:

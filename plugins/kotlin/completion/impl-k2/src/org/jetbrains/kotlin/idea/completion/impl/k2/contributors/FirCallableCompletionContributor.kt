@@ -327,7 +327,11 @@ internal open class FirCallableCompletionContributor(
 
             val callables = if (invocationCount > 1) {
                 symbolFromIndexProvider.getKotlinCallableSymbolsByNameFilter(scopeNameFilter) {
-                    visibilityChecker.canBeVisible(it)
+                    if (!visibilityChecker.canBeVisible(it)) return@getKotlinCallableSymbolsByNameFilter false
+                    // We should not show class members when we do not have a receiver.
+                    // See: KT-78882 for why we need `runCatching` here.
+                    val containingSymbol = runCatching { it.symbol.containingSymbol }.getOrNull()
+                    containingSymbol !is KaClassSymbol || containingSymbol.classKind.isObject
                 }
             } else {
                 symbolFromIndexProvider.getTopLevelCallableSymbolsByNameFilter(scopeNameFilter) {
@@ -894,7 +898,7 @@ internal class FirInfixCallableCompletionContributor(
 ) : FirCallableCompletionContributor(sink, priority) {
 
     override fun getInsertionStrategy(signature: KaCallableSignature<*>): CallableInsertionStrategy =
-        infixCallableInsertionStrategy
+        CallableInsertionStrategy.InfixCallableInsertionStrategy
 
     context(KaSession)
     @KaExperimentalApi
@@ -907,16 +911,6 @@ internal class FirInfixCallableCompletionContributor(
         symbol is KaNamedFunctionSymbol
                 && symbol.isInfix
                 && super.filter(symbol)
-
-    companion object {
-        private val infixCallableInsertionStrategy = CallableInsertionStrategy.AsIdentifierCustom {
-            if (completionChar == ' ') {
-                setAddCompletionChar(false)
-            }
-
-            insertStringAndInvokeCompletion(" ")
-        }
-    }
 }
 
 internal class FirKDocCallableCompletionContributor(

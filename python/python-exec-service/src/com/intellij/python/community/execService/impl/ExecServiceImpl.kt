@@ -6,7 +6,6 @@ import com.intellij.platform.eel.EelApi
 import com.intellij.platform.eel.EelProcess
 import com.intellij.platform.eel.ExecuteProcessException
 import com.intellij.platform.eel.path.EelPath
-import com.intellij.platform.eel.path.EelPathException
 import com.intellij.platform.eel.provider.asEelPath
 import com.intellij.platform.eel.provider.getEelDescriptor
 import com.intellij.platform.eel.provider.utils.EelPathUtils
@@ -16,15 +15,8 @@ import com.intellij.python.community.execService.ExecOptions
 import com.intellij.python.community.execService.ExecService
 import com.intellij.python.community.execService.ProcessInteractiveHandler
 import com.jetbrains.python.Result
-import com.jetbrains.python.errorProcessing.ExecError
-import com.jetbrains.python.errorProcessing.ExecErrorReason
-import com.jetbrains.python.errorProcessing.PyExecResult
-import com.jetbrains.python.errorProcessing.PyResult
-import com.jetbrains.python.errorProcessing.failure
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
+import com.jetbrains.python.errorProcessing.*
+import kotlinx.coroutines.*
 import org.jetbrains.annotations.CheckReturnValue
 import org.jetbrains.annotations.Nls
 import java.nio.file.Path
@@ -36,36 +28,34 @@ import kotlin.time.Duration
 
 internal object ExecServiceImpl : ExecService {
 
-  override suspend fun <T> executeAdvanced(binary: Path, argsBuilder: suspend ArgsBuilder.() -> Unit, options: ExecOptions, processInteractiveHandler: ProcessInteractiveHandler<T>): PyResult<T> {
+  override suspend fun <T> executeAdvanced(binary: Path, argsBuilder: suspend ArgsBuilder.() -> Unit, options: ExecOptions, processInteractiveHandler: ProcessInteractiveHandler<T>): PyExecResult<T> {
     val args = ArgsBuilderImpl(binary.getEelDescriptor().toEelApi()).apply { argsBuilder() }.args
     val description = options.processDescription
                       ?: PyExecBundle.message("py.exec.defaultName.process", (listOf(binary.pathString) + args).joinToString(" "))
 
-    val eelPath = try {
-      binary.asEelPath()
-    }
-    catch (e: EelPathException) {
-      return PyExecResult.localizedError(e.localizedMessage)
-    }
-    val executableProcess = EelExecutableProcess(eelPath, args, options.env, options.workingDirectory, description)
-    val eelProcess = executableProcess.run().getOr { return it }
+    return coroutineScope {
 
-    val result = try {
-      withTimeout(options.timeout) {
-        val interactiveResult = processInteractiveHandler.getResultFromProcess(binary, args, eelProcess)
+      val binary = if (binary.isAbsolute) binary else options.workingDirectory?.resolve(binary) ?: binary.toAbsolutePath()
+      val eelPath = binary.asEelPath()
+      val executableProcess = EelExecutableProcess(eelPath, args, options.env, options.workingDirectory, description)
+      val eelProcess = executableProcess.run(this).getOr { return@coroutineScope it }
+      val result = try {
+        withTimeout(options.timeout) {
+          val interactiveResult = processInteractiveHandler.getResultFromProcess(binary, args, eelProcess)
 
-        val successResult = interactiveResult.getOr { failure ->
-          val (output, customErrorMessage) = failure.error
-          return@withTimeout executableProcess.failAsExecutionFailed(ExecErrorReason.UnexpectedProcessTermination(output), customErrorMessage)
+          val successResult = interactiveResult.getOr { failure ->
+            val (output, customErrorMessage) = failure.error
+            return@withTimeout executableProcess.failAsExecutionFailed(ExecErrorReason.UnexpectedProcessTermination(output), customErrorMessage)
+          }
+          Result.success(successResult)
         }
-        Result.success(successResult)
       }
-    }
-    catch (_: TimeoutCancellationException) {
-      executableProcess.killProcessAndFailAsTimeout(eelProcess, options.timeout)
-    }
+      catch (_: TimeoutCancellationException) {
+        executableProcess.killProcessAndFailAsTimeout(eelProcess, options.timeout)
+      }
 
-    return result
+      return@coroutineScope result
+    }
   }
 }
 
@@ -78,13 +68,15 @@ private data class EelExecutableProcess(
 )
 
 @CheckReturnValue
-private suspend fun EelExecutableProcess.run(): PyExecResult<EelProcess> {
+private suspend fun EelExecutableProcess.run(scopeToBound: CoroutineScope): PyExecResult<EelProcess> {
   val workingDirectory = if (workingDirectory != null && !workingDirectory.isAbsolute) workingDirectory.toRealPath() else workingDirectory
   try {
     val executionResult = exe.descriptor.toEelApi().exec.spawnProcess(exe.toString())
+      .scope(scopeToBound)
       .args(args)
       .env(env)
-      .workingDirectory(workingDirectory?.asEelPath()).eelIt()
+      .workingDirectory(workingDirectory?.asEelPath())
+      .eelIt()
 
     return Result.success(executionResult)
   }
@@ -95,7 +87,7 @@ private suspend fun EelExecutableProcess.run(): PyExecResult<EelProcess> {
 
 private fun EelExecutableProcess.failAsCantStart(executeProcessError: ExecuteProcessException): Result.Failure<ExecError> {
   return ExecError(
-    exe = exe,
+    exe = Exe.OnEel(exe),
     args = args.toTypedArray(),
     additionalMessageToUser = PyExecBundle.message("py.exec.start.error", description, executeProcessError.message, executeProcessError.errno),
     errorReason = ExecErrorReason.CantStart(executeProcessError.errno, executeProcessError.message)
@@ -103,10 +95,12 @@ private fun EelExecutableProcess.failAsCantStart(executeProcessError: ExecutePro
 }
 
 private suspend fun EelExecutableProcess.killProcessAndFailAsTimeout(eelProcess: EelProcess, timeout: Duration): Result.Failure<ExecError> {
+  eelProcess.interrupt()
   eelProcess.kill()
+  eelProcess.exitCode.await()
 
   return ExecError(
-    exe = exe,
+    exe = Exe.OnEel(exe),
     args = args.toTypedArray(),
     additionalMessageToUser = PyExecBundle.message("py.exec.timeout.error", description, timeout),
     errorReason = ExecErrorReason.Timeout
@@ -119,7 +113,7 @@ private fun EelExecutableProcess.failAsExecutionFailed(processOutput: ExecErrorR
   }
 
   return ExecError(
-    exe = exe,
+    exe = Exe.OnEel(exe),
     args = args.toTypedArray(),
     additionalMessageToUser = additionalMessage,
     errorReason = processOutput

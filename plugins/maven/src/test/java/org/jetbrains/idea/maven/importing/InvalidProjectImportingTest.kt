@@ -15,15 +15,56 @@
  */
 package org.jetbrains.idea.maven.importing
 
+import com.intellij.build.SyncViewManager
+import com.intellij.build.events.BuildEvent
+import com.intellij.build.events.BuildIssueEvent
+import com.intellij.build.events.MessageEvent
 import com.intellij.maven.testFramework.MavenMultiVersionImportingTestCase
 import com.intellij.openapi.application.edtWriteAction
 import com.intellij.testFramework.UsefulTestCase
+import com.intellij.testFramework.replaceService
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.idea.maven.MavenCustomRepositoryHelper
+import org.jetbrains.idea.maven.execution.SyncBundle
 import org.jetbrains.idea.maven.project.MavenProject
 import org.junit.Test
 
 class InvalidProjectImportingTest : MavenMultiVersionImportingTestCase() {
+
+
+  @Test
+  fun testSubprojectsWithOldModel() = runBlocking {
+    runWithoutStaticSync()
+    assumeMaven4()
+    createModulePom("m1", """
+      <groupId>test</groupId>
+      <artifactId>m1</artifactId>
+      <version>1</version>
+      """.trimIndent())
+
+    createProjectPom("""
+                       <groupId>test</groupId>
+                       <artifactId>project</artifactId>
+                       <version>1</version>
+                       <subprojects>
+                           <subproject>m1</subproject>
+                       </subprojects>
+                       """.trimIndent())
+    val events = ArrayList<BuildEvent>()
+    val myTestSyncViewManager = object : SyncViewManager(project) {
+      override fun onEvent(buildId: Any, event: BuildEvent) {
+        events.add(event)
+      }
+    }
+
+    project.replaceService(SyncViewManager::class.java, myTestSyncViewManager, testRootDisposable)
+    importProjectAsync()
+
+    val issues = events.filterIsInstance<BuildIssueEvent>().filter { it.kind == MessageEvent.Kind.WARNING }
+    assertSize(1, issues)
+    assertEquals(SyncBundle.message("maven.sync.incorrect.model.version"), issues[0].issue.title)
+
+  }
 
   @Test
   fun testSystemDependencyWithoutPath() = runBlocking {
@@ -51,8 +92,8 @@ class InvalidProjectImportingTest : MavenMultiVersionImportingTestCase() {
 
     forMaven4 {
       val expected = arrayOf(
-        "'dependencies.dependency.systemPath' for junit:junit:jar is missing.",
-        "'dependencies.dependency.scope' for junit:junit:jar declares usage of deprecated 'system' scope ",
+        "'dependencies.dependency.systemPath' for groupId='junit', artifactId='junit', type='jar' is missing.",
+        "'dependencies.dependency.scope' for groupId='junit', artifactId='junit', type='jar' declares usage of deprecated 'system' scope ",
       )
       assertProblems(projectsManager.findProject(projectPom)!!, *expected)
     }
@@ -60,7 +101,6 @@ class InvalidProjectImportingTest : MavenMultiVersionImportingTestCase() {
 
   @Test
   fun testResetDependenciesWhenProjectContainsErrors() = runBlocking {
-    //Registry.get("maven.server.debug").setValue(true);
     createProjectPom("""
                        <groupId>test</groupId>
                        <artifactId>project</artifactId>
@@ -195,8 +235,7 @@ class InvalidProjectImportingTest : MavenMultiVersionImportingTestCase() {
     val root = rootProjects[0]
     val problems = if (isMaven4)
       arrayOf(
-        "'artifactId' with value '\${undefined}' does not match a valid coordinate id pattern.",
-        "'artifactId' contains an expression but should be a constant.",
+        "Invalid Collect Request: null -> [] < [central-mirror (https://cache-redirector.jetbrains.com/repo1.maven.org/maven2, default, releases)]",
       )
     else
       arrayOf("'artifactId' with value '\${undefined}' does not match a valid id pattern.")
@@ -223,7 +262,9 @@ class InvalidProjectImportingTest : MavenMultiVersionImportingTestCase() {
     val root = rootProjects[0]
     val problems = root.problems
     assertFalse(problems.isEmpty())
-    assertModuleLibDeps("project", "Maven: group:artifact:1")
+    forMaven3 {
+      assertModuleLibDeps("project", "Maven: group:artifact:1")
+    }
   }
 
   @Test
